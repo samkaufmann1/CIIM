@@ -1,0 +1,15 @@
+[project]
+name = "ciim-sai"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.2", "pyyaml>=6.0", "pydantic>=2.7"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+CIIM_SAI = ["inputs/**/*.yaml", "inputs/**/*.csv"]
