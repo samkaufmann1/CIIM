@@ -1,0 +1,23 @@
+# CIIM — scenario inputs
+#
+# What the model is being asked to do: how much is injected, where, and using what deployment method.
+#
+# Units are SI base units or USD unless noted otherwise in the variable name.
+# deployment_pattern names a file in deployment_patterns/.
+
+deployment_method: teleporter
+deployment_pattern: example_pattern.csv # all deployed masses are in Tg per year
+deployed_material: SO2
+altitude: 20000
+
+# Optional parameter sweep capability. Each entry means a parameter sweep of the given variable. 
+# Currently implemented: start/stop/step range; stop is inclusive.
+# Capabilities to be implemented: TODO later
+# - List of values
+# - Multi-dimensional sweep, whose output then becomes an array with a number of dimensions
+# - equal to the number of parameters being swept.
+sweep:
+  altitude:
+    start: 15000
+    stop: 30000
+    step: 1000

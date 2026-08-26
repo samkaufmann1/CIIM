@@ -1,0 +1,22 @@
+# A simple fictional SAI deployment method.
+# Units are SI base units or USD unless noted otherwise in the variable name.
+
+# Non-recurring engineering to design and demonstrate the system before it can be put into mass production
+development:
+  NRE: 1.0e+9
+  duration_years: 5
+
+
+# properties per unit teleporter
+unit:
+  cost: 1.0e+8
+  lifetime_years: 10
+  capacity_per_year: 1.0e+9
+  lead_time_years: 2
+  labor:
+    teleportationist:
+      count: 5
+      salary: 1.0e+5
+  consumption:
+    unobtanium:
+      kg_per_year_per_altitude: 1.0   # kg per teleporter per year, per meter of altitude

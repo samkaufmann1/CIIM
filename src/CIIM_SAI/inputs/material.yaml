@@ -1,0 +1,14 @@
+# Bulk materials used in SAI deployment
+# Keys are chemical formulas or common names
+#
+# Units are SI base units or USD unless noted otherwise in the variable name.
+# So molar_mass is kg/mol, cost is dollars per kilogram of that material.
+
+SO2:
+  molar_mass: 0.064058
+  cost: 0.2
+  source: placeholder
+
+unobtanium:
+  cost: 1.0e+3
+  source: fictional
