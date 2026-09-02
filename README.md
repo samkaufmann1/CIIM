@@ -6,9 +6,8 @@ supplied, year by year, to deliver a given deployment pattern — and what it
 would cost.
 
 **Status: early development.** The only deployment method implemented so far is
-a deliberately fictional one (a fleet of teleporters consuming unobtanium),
-used to exercise the model's machinery while it is built. Nothing the model
-produces yet is a research result.
+a fictional one (a fleet of teleporters consuming unobtanium),
+used to exercise the model's machinery while it is built.
 
 Generative AI tools were used to help write the code and documentation in this repo.
 I take full responsibility as the author for everything produced using these tools.
@@ -25,7 +24,7 @@ All inputs are files packaged under `src/CIIM_SAI/inputs/`:
 | `scenario/scenario.yaml` | Which deployment method, material, and deployment pattern to run; injection altitude; optional parameter sweeps |
 | `scenario/deployment_patterns/*.csv` | Deployed mass (Tg/year) by year and latitude |
 | `deployment_methods/*.yaml` | One file per deployment method: development (NRE), unit cost, lifetime, capacity, lead time, labor, consumables |
-| `material.yaml` | Materials: cost per kg, molar mass, source of the figure |
+| `material.yaml` | Materials: cost per kg, molar mass, sources |
 | `finance.yaml` | Currency conventions |
 
 From the deployment pattern, the model determines how many units must be in
@@ -33,12 +32,11 @@ service each year, then schedules orders, deliveries, and retirements around
 unit lifetime and lead time, and prices the result: development spread over the
 years before the first order, capital spread across each unit's lead time, and
 operating costs (labor, consumables, feedstock) for the active fleet. A
-scenario may sweep any scenario parameter over a range; the Cartesian product
-of all sweeps is run case by case and stacked into a single table, one row per
+scenario may sweep any scenario parameter over a range; results are stacked into a single table, one row per
 (case, year).
 
 Conventions: SI base units throughout (altitude in meters, mass in kg), with
-one deliberate exception — time is in years. All costs are real 2025 US
+one exception — time is in years. All costs are real 2025 US
 dollars. Deployment pattern CSVs are in Tg/year and converted to kg on load.
 
 ## Running it
@@ -61,8 +59,6 @@ results = run()   # one DataFrame, all cases
 ```
 
 To change what is modeled, edit the YAML files under `src/CIIM_SAI/inputs/`.
-Inputs are validated on load; a typo'd key or out-of-range value fails
-immediately with a message naming the file and field.
 
 ## Repository layout
 
