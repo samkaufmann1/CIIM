@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CIIM-SAI</title>
+</head>
+<body>
+  <h1>CIIM-SAI — proof of concept</h1>
+  <pre id="status">Loading Pyodide…</pre>
+  <pre id="output"></pre>
+
+  <script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
+  <script>
+    const status = (msg) => document.getElementById("status").textContent = msg;
+
+    async function main() {
+      try {
+        const pyodide = await loadPyodide();
+
+        status("Installing model package…");
+        await pyodide.loadPackage("micropip");
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install("./ciim_sai-0.1.0-py3-none-any.whl");
+
+        status("Running model…");
+        const summary = pyodide.runPython(`
+from CIIM_SAI.run import run
+
+results = run()
+(
+    f"{len(results):,} rows — "
+    f"{results['case'].nunique()} cases x {results['year'].nunique()} years\\n"
+    f"total program cost, cheapest case:  ${'$'}{results.groupby('case')['total_cost'].sum().min()/1e9:,.2f}B\\n"
+    f"total program cost, priciest case:  ${'$'}{results.groupby('case')['total_cost'].sum().max()/1e9:,.2f}B"
+)
+        `);
+
+        status("Done.");
+        document.getElementById("output").textContent = summary;
+      } catch (err) {
+        status("FAILED:\n" + err);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
