@@ -37,7 +37,7 @@ scenario may sweep any scenario parameter over a range; the Cartesian product
 of all sweeps is run case by case and stacked into a single table, one row per
 (case, year).
 
-Conventions: SI base units throughout (altitude in metres, mass in kg), with
+Conventions: SI base units throughout (altitude in meters, mass in kg), with
 one deliberate exception — time is in years. All costs are real 2025 US
 dollars. Deployment pattern CSVs are in Tg/year and converted to kg on load.
 
