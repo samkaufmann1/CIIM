@@ -112,6 +112,7 @@ results = run()
 
         showLoading("Done.");
         document.getElementById("output").textContent = summary;
+        hideLoading();
       } catch (err) {
         hideLoading();
         document.getElementById("output").textContent = "FAILED:\n" + err;
