@@ -13,20 +13,15 @@
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
-    font-family: system-ui, sans-serif;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
     z-index: 10;
   }
   #loading[hidden] { display: none; }
 
-  .spinner {
-    width: 2.5rem;
-    height: 2.5rem;
-    border: 3px solid #d5d5d0;
-    border-top-color: #4a7aa7;
-    border-radius: 50%;
-    animation: spin 0.9s linear infinite;
+  #spinner {
+    font-size: 2rem;
+    color: #4a7aa7;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   #loading-status { margin: 0; color: #333; }
   #loading-quip {
@@ -40,7 +35,7 @@
 </head>
 <body>
   <div id="loading" hidden>
-    <div class="spinner"></div>
+    <div id="spinner">|</div>
     <p id="loading-status">Loading…</p>
     <p id="loading-quip"></p>
   </div>
@@ -55,6 +50,17 @@
       "reducing oxidants…",
       "arguing about terminology…",
     ];
+
+    const FRAMES = ["|", "/", "-", "\\"];   // note the escaped backslash
+    let spinTimer = null;
+
+    function startSpinner() {
+      const el = document.getElementById("spinner");
+      let i = 0;
+      spinTimer = setInterval(() => {
+        el.textContent = FRAMES[i++ % FRAMES.length];
+      }, 120);
+    }
 
     let quipTimer = null;
 
@@ -79,6 +85,7 @@
       if (overlay.hidden) {
         overlay.hidden = false;
         startQuips();
+        startSpinner()
       }
     }
 
@@ -86,6 +93,8 @@
       document.getElementById("loading").hidden = true;
       clearInterval(quipTimer);
       quipTimer = null;
+      clearInterval(spinTimer)
+      spinTimer = null
     }
 
     async function main() {
