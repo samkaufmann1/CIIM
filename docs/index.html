@@ -36,8 +36,10 @@
   #run-status {
     margin-left: 0.75rem;
     font-family: ui-monospace, Consolas, "Courier New", monospace;
-    color: #a33;
   }
+
+  #run-status.ok    { color: #5a7a5a; }
+  #run-status.error { color: #a33; }
 
   fieldset label { display: block; margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
@@ -271,6 +273,7 @@
       await new Promise(r => setTimeout(r, 0));   // let the overlay paint first
       const status = document.getElementById("run-status");
       status.textContent = "";
+      status.className = "";
       try {
         pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`); // apparently JSON.stringify runs twice because you have to transform the object twice
         pyodide.runPython(`write_overrides(${JSON.stringify(JSON.stringify(gatherInputsForms()))})`);
@@ -280,9 +283,10 @@
         renderChart("chart-components", pyodide.runPython("component_chart()"));
         document.getElementById("download-csv").disabled = false;
         status.textContent = "Model run successful";
-        status.style.color = "#5a7a5a";
+        status.className = "ok";
       } catch (err) {
         status.textContent = errorHeadline(err);
+        status.className = "error";
         document.getElementById("output").textContent = "FAILED:\n" + err;
       }
       hideLoading();
