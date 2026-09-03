@@ -31,6 +31,7 @@
     min-height: 1.3em;             /* no layout jump between quips */
     transition: opacity 0.3s;
   }
+  #scenario-form label { display: block; margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
   </style>
   <script 
@@ -43,13 +44,20 @@
     <p id="loading-status">Loading…</p>
     <p id="loading-quip"></p>
   </div>
-  <h1>CIIM-SAI — proof of concept</h1>
-  <pre id="output"></pre>
-  <button id="download-csv" disabled>Download results CSV</button>
-  <div id="chart-costs"></div>
-  <div id="chart-components"></div>
+  <h1>CIIM-SAI</h1>
+  <p>A simulation of the costs and operational requirements of SAI deployment.</p>
+  <p>
+    <strong>Inputs:</strong> A pattern and schedule of SAI deployment, and
+    assumptions about the deployment infrastructure being used.<br>
+    <strong>Outputs:</strong> Costs, operational requirements, and procurement schedule.
+  </p>
+  <p>
+    Currently only a fictional "teleporter" deployment method is implemented.
+    Source code can be found at
+    <a href="https://github.com/samkaufmann1/CIIM">github.com/samkaufmann1/CIIM</a>.
+  </p>
 
-  <fieldset id="scenario-form">
+ <fieldset id="scenario-form">
     <legend>scenario</legend>
     <label>deployment method
       <select id="f-method"></select>
@@ -63,8 +71,8 @@
     <label>deployment pattern (Tg/year, year × latitude)
       <input id="f-pattern" type="file" accept=".csv" disabled>
     </label>
-    <span id="pattern-name"></span>
     <button id="download-pattern" type="button" disabled>Download current pattern CSV</button>
+    <span id="pattern-name"></span>
     <label><input id="f-sweep-on" type="checkbox"> parameter sweep</label>
     <div id="sweep-controls" hidden>
       <label>parameter
@@ -79,6 +87,14 @@
 
   <button id="run-model" disabled>Run model</button>
 
+
+
+  <pre id="output"></pre>
+  <button id="download-csv" disabled>Download results CSV</button>
+  <div id="chart-costs"></div>
+  <div id="chart-components"></div>
+
+ 
   <script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
   <script>
     const QUIPS = [
@@ -154,6 +170,7 @@
       document.getElementById("f-altitude").value = init.scenario.altitude;
 
       patternFile = init.scenario.deployment_pattern;   // carried until the CSV step
+      document.getElementById("pattern-name").textContent = patternFile;
 
       const sweep = (init.scenario.sweep || {}).altitude;
       document.getElementById("f-sweep-on").checked = Boolean(sweep);
@@ -248,7 +265,7 @@
       if (!file) return;
       const text = await file.text();
       patternFile = pyodide.runPython(`write_pattern(${JSON.stringify(text)})`);
-      document.getElementById("pattern-name").textContent = `using ${file.name}`;
+      document.getElementById("pattern-name").textContent = file.name;
     });
 
     document.getElementById("download-pattern").addEventListener("click", () => {
