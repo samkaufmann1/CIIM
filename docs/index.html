@@ -279,6 +279,8 @@
         renderChart("chart-costs", pyodide.runPython("cost_chart()"));
         renderChart("chart-components", pyodide.runPython("component_chart()"));
         document.getElementById("download-csv").disabled = false;
+        status.textContent = "Model run successful";
+        status.style.color = "#5a7a5a";
       } catch (err) {
         status.textContent = errorHeadline(err);
         document.getElementById("output").textContent = "FAILED:\n" + err;
@@ -309,8 +311,7 @@
         document.getElementById("f-pattern").disabled = false;
         document.getElementById("download-pattern").disabled = false;
         document.getElementById("reset-inputs").disabled = false;
-        status.textContent = "Model run successful";
-        status.style.color = "#5a7a5a";
+
       } catch (err) {
         hideLoading();
         document.getElementById("output").textContent = "FAILED:\n" + err;
