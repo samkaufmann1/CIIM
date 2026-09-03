@@ -2,6 +2,12 @@
 
 Defines the shape of inputs/deployment_methods/teleporter.yaml and computes the
 annual program table from it. Reads no files: everything arrives via Inputs.
+
+A deployment method module's entire public interface is
+deployment_schedule(inputs) -> DataFrame indexed by year. run.py imports it by
+name (deploy_<method>) and calls that one function; everything else here is
+private to this method. The module also owns the schema for its own YAML file,
+which load_inputs passes through unvalidated as a raw dict.
 """
 
 from __future__ import annotations
@@ -43,7 +49,8 @@ class Unit(Frozen):
 
 
 class Teleporter(Frozen):
-    """The contents of teleporter.yaml. Keys named by the user (teleportationist, unobtanium) are dict keys; the model does not need to enumerate them."""
+    """The contents of teleporter.yaml. Keys named by the user (teleportationist, unobtanium)
+    are dict keys; the model does not need to enumerate them."""
 
     development: Development
     unit: Unit
@@ -65,6 +72,8 @@ def build_fleet(units_required: pd.Series, lifetime_years: int) -> pd.DataFrame:
     A teleporter entering service in year y retires at y + lifetime_years, so a
     year's retirements are the entries from lifetime_years ago
     The loop carries a single number: how many are currently in service.
+
+    Teleporters never retire early, so overcapacity is possible.
     """
     entering: dict[int, int] = {}
     retiring: dict[int, int] = {}
@@ -83,7 +92,7 @@ def build_fleet(units_required: pd.Series, lifetime_years: int) -> pd.DataFrame:
     ).rename_axis("year")
 
 
-# --- Calculation of deployment requirements ----------------------------------------------------------
+# --- Cost spreading ----------------------------------------------------------
 
 
 

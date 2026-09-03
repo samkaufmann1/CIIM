@@ -1,3 +1,20 @@
+"""Python half of the browser GUI. Runs under Pyodide, not on a filesystem.
+
+docs/index.html fetches this file, executes it once to define these functions,
+then calls them by name from JavaScript: run_model() and results_csv() for
+running and exporting, cost_chart() and component_chart() for figures (returned
+as Plotly JSON for the page to render), and the form/config helpers to read and
+write input files.
+
+/ciim_inputs is a writable copy of the packaged inputs in Pyodide's virtual
+filesystem. The GUI edits files there and the model reads them back through the
+normal loader, so GUI input is validated exactly like hand-edited YAML — which
+is why nothing here validates anything itself.
+
+Module-level `results`, `sweep_params` and `currency_year` persist between the
+separate JavaScript calls that make up one run-then-render-then-export cycle.
+"""
+
 from CIIM_SAI.load_inputs import load_inputs, INPUTS_DIR
 from CIIM_SAI.run import run
 import plotly.graph_objects as go

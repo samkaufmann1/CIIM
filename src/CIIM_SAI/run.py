@@ -13,7 +13,8 @@ from CIIM_SAI.load_inputs import Inputs, load_inputs, with_overrides
 
 
 def get_method(name: str) -> ModuleType:
-    """Import the module implementing deployment method `name`."""
+    """Import the module implementing deployment method `name`.
+    Each deployment method corresponds to a .py file under inputs/deployment_methods"""
     return import_module(f"CIIM_SAI.deployment_methods.deploy_{name}")
 
 

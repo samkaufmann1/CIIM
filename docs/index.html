@@ -119,6 +119,38 @@
   <div id="chart-components"></div>
 
  
+    /* CIIM-SAI browser GUI.
+     *
+     * The model is Python. This file loads it and displays what it returns; it
+     * never computes anything about the model itself. Python arrives as a wheel
+     * installed into Pyodide (CPython compiled to WebAssembly), and the
+     * functions called below by name — run_model, cost_chart, write_scenario,
+     * and so on — are defined in app.py, fetched and executed at boot.
+     *
+     * Boot, in main(): load Pyodide -> install plotly and the model wheel ->
+     * fetch and execute app.py -> copy the packaged inputs into /ciim_inputs, a
+     * writable directory in Pyodide's virtual filesystem -> fill the forms from
+     * those files -> run once -> unlock the controls.
+     *
+     * Every run, in runFromInputs(): gather the form widgets, write them back
+     * out as YAML into /ciim_inputs, then load and run from that directory. So
+     * the GUI never passes values to the model directly — it edits input files,
+     * and the model's own loader validates them. Bad input surfaces as the
+     * loader's error message, on the status line and in the output area.
+     *
+     * State that outlives a call: `pyodide` (the interpreter) and `patternFile`
+     * (the active deployment pattern's filename, which the forms round-trip but
+     * only the upload handler changes).
+     *
+     * Passing values into runPython: JSON.stringify once turns a string into a
+     * Python string literal; twice turns an object into JSON text and then into
+     * a literal. Both are used below.
+     *
+     * The loading overlay, spinner and quips are cosmetic, and freeze while
+     * Python runs — everything here is on the browser's single main thread.
+     */
+
+
   <script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
   <script>
     const QUIPS = [
