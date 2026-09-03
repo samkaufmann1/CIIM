@@ -1,16 +1,31 @@
-from CIIM_SAI.load_inputs import load_inputs
+from CIIM_SAI.load_inputs import load_inputs, INPUTS_DIR
 from CIIM_SAI.run import run
 import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 from plotly.subplots import make_subplots
+from pathlib import Path.
+import shutil
 
 results = None
 sweep_params: list[str] = []
 
-def run_model() -> str:
-    """Run the packaged scenario; keep results for export; return a summary."""
+
+def materialize_inputs(dest: str = "/ciim_inputs") -> None:
+    """Copy the packaged input files into a writable directory.
+
+    The GUI edits files here, and run_model() reads the directory back
+    through the normal loader, so GUI input gets exactly the packaged
+    inputs' validation.
+    """
+    dest_path = Path(dest)
+    if dest_path.exists():
+        shutil.rmtree(dest_path)
+    shutil.copytree(INPUTS_DIR, dest_path)
+
+def run_model(inputs_dir: str | None = None) -> str:
+    """Run the scenario in inputs_dir (packaged defaults if None); keep results; return a summary."""
     global results, sweep_params
-    inputs = load_inputs()
+    inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
     scenario = inputs.scenario
     results = run(inputs)
     sweep_params = list(scenario.sweep)
