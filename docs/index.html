@@ -33,6 +33,9 @@
   }
   #output { overflow-x: auto; }
   </style>
+  <script 
+    src="https://cdn.plot.ly/plotly-4.0.0.min.js" charset="utf-8">
+  </script>
 </head>
 <body>
   <div id="loading" hidden>
@@ -43,7 +46,8 @@
   <h1>CIIM-SAI — proof of concept</h1>
   <pre id="output"></pre>
   <button id="download-csv" disabled>Download results CSV</button>
-
+  <div id="chart-costs"></div>
+  <div id="chart-components"></div>
 
   <script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
   <script>
@@ -100,6 +104,11 @@
       spinTimer = null
     }
 
+    function renderChart(divId, figJson) {
+      const fig = JSON.parse(figJson);
+      Plotly.newPlot(divId, fig.data, fig.layout, { responsive: true });
+    }
+
     let pyodide = null;
 
     async function main() {
@@ -110,14 +119,15 @@
         showLoading("Installing model package…");
         await pyodide.loadPackage("micropip");
         const micropip = pyodide.pyimport("micropip");
-        await micropip.install("./ciim_sai-0.1.0-py3-none-any.whl");
-
+        await micropip.install(["plotly", "./ciim_sai-0.1.0-py3-none-any.whl"]);
         showLoading("Running model…");
         const appCode = await (await fetch("./app.py")).text();
         pyodide.runPython(appCode);                          // defines run_model, results_csv
         const summary = pyodide.runPython("run_model()");
 
         document.getElementById("output").textContent = summary;
+        renderChart("chart-costs", pyodide.runPython("cost_chart()"));
+        renderChart("chart-components", pyodide.runPython("component_chart()"));
         document.getElementById("download-csv").disabled = false;
         hideLoading();
       } catch (err) {
