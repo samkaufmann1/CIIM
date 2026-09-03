@@ -31,6 +31,14 @@
     min-height: 1.3em;             /* no layout jump between quips */
     transition: opacity 0.3s;
   }
+
+
+  #run-status {
+    margin-left: 0.75rem;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    color: #a33;
+  }
+
   fieldset label { display: block; margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
   </style>
@@ -87,6 +95,7 @@
   <div id="inputs-forms"></div>
 
   <button id="run-model" disabled>Run model</button>
+  <span id="run-status"></span>
   <button id="reset-inputs" type="button" disabled>Reset to defaults</button> // apparently type="button" is safer but not strictly necessary? Vibecoding :P
 
 
@@ -247,12 +256,21 @@
       return overrides;
     }
 
+    // Helper function to catch errors
+    function errorHeadline(err) {
+      const lines = String(err).trim().split("\n");
+      const line = lines.filter(l => /^[\w.]*(Error|Exception):/.test(l)).pop();
+      return line ? line.slice(0, 120) : "run failed — see details below";
+    }
+
 
     let pyodide = null;
 
     async function runFromInputs() {
       showLoading("Running model…");
       await new Promise(r => setTimeout(r, 0));   // let the overlay paint first
+      const status = document.getElementById("run-status");
+      status.textContent = "";
       try {
         pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`); // apparently JSON.stringify runs twice because you have to transform the object twice
         pyodide.runPython(`write_overrides(${JSON.stringify(JSON.stringify(gatherInputsForms()))})`);
@@ -262,6 +280,7 @@
         renderChart("chart-components", pyodide.runPython("component_chart()"));
         document.getElementById("download-csv").disabled = false;
       } catch (err) {
+        status.textContent = errorHeadline(err);
         document.getElementById("output").textContent = "FAILED:\n" + err;
       }
       hideLoading();
