@@ -42,6 +42,7 @@
   #run-status.error { color: #a33; }
 
   fieldset label { display: block; margin-bottom: 0.5rem; }
+  .controls { margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
   </style>
   <script 
@@ -96,9 +97,18 @@
   </fieldset>
   <div id="inputs-forms"></div>
 
+  <div class="controls">
   <button id="run-model" disabled>Run model</button>
   <span id="run-status"></span>
-  <button id="reset-inputs" type="button" disabled>Reset to defaults</button>
+  </div>
+  <div class="controls">
+    <button id="reset-inputs" type="button" disabled>Reset to defaults</button>
+  </div>
+  <div class="controls">
+    <button id="export-config" type="button" disabled>Export config</button>
+    <label>import config <input id="import-config" type="file" accept=".yaml,.yml" disabled></label>
+  </div>
+
 
 
   <pre id="output"></pre>
@@ -364,6 +374,30 @@
       renderInputsForms();
       await runFromInputs();
     });
+
+
+    document.getElementById("export-config").addEventListener("click", () => {
+      downloadText("ciim_config.yaml", pyodide.runPython("export_config()"), "text/yaml");
+    });
+
+    document.getElementById("import-config").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      try {
+        pyodide.runPython(`import_config(${JSON.stringify(text)})`);
+        document.getElementById("f-pattern").value = "";
+        populateScenarioForm();
+        renderInputsForms();
+        await runFromInputs();
+      } catch (err) {
+        const status = document.getElementById("run-status");
+        status.textContent = errorHeadline(err);
+        status.className = "error";
+      }
+      e.target.value = "";
+    });
+
 
     main();
   </script>
