@@ -106,6 +106,8 @@
   </div>
   <div class="controls">
     <button id="export-config" type="button" disabled>Export config</button>
+  </div>
+  <div class="controls">
     <label>import config <input id="import-config" type="file" accept=".yaml,.yml" disabled></label>
   </div>
 
@@ -325,6 +327,8 @@
         document.getElementById("f-pattern").disabled = false;
         document.getElementById("download-pattern").disabled = false;
         document.getElementById("reset-inputs").disabled = false;
+        document.getElementById("export-config").disabled = false;
+        document.getElementById("import-config").disabled = false;
 
       } catch (err) {
         hideLoading();
