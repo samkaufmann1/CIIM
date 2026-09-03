@@ -203,3 +203,54 @@ def write_pattern(csv_text: str) -> str:
     name = "uploaded_pattern.csv"
     (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / name).write_text(csv_text, encoding="utf-8")
     return name
+
+
+
+def flatten(data: dict, prefix: str = "") -> list[tuple[str, object]]:
+    """Depth-first (dot.path, value) pairs for every leaf of a nested dict. Used to pull input assumption fields out of the input files."""
+    pairs = []
+    for key, value in data.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            pairs.extend(flatten(value, path))
+        else:
+            pairs.append((path, value))
+    return pairs
+
+
+def inputs_form_init() -> str:
+    """Field descriptions for the non-scenario input files, as JSON for the form."""
+    root = Path("/ciim_inputs")
+    scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
+    files = [
+        (f"deployment_methods/{scenario['deployment_method']}.yaml",
+         f"deployment method: {scenario['deployment_method']}"),
+        ("material.yaml", "materials"),
+        ("finance.yaml", "finance"),
+    ]
+    spec = []
+    for rel, title in files:
+        data = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
+        fields = [
+            {"path": path, "value": value,
+             "kind": "number" if isinstance(value, (int, float)) and not isinstance(value, bool) else "text"}
+            for path, value in flatten(data)
+        ]
+        spec.append({"file": rel, "title": title, "fields": fields})
+    return json.dumps({"files": spec})
+
+
+def write_overrides(overrides_json: str) -> None:
+    """Apply {file: {dot.path: value}} onto the working input files and rewrite them."""
+    overrides = json.loads(overrides_json)
+    root = Path("/ciim_inputs")
+    for rel, fields in overrides.items():
+        path = root / rel
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for dotted, value in fields.items():
+            node = data
+            *parents, leaf = dotted.split(".")
+            for key in parents:
+                node = node[key]
+            node[leaf] = value
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")

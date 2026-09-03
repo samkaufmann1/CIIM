@@ -31,7 +31,7 @@
     min-height: 1.3em;             /* no layout jump between quips */
     transition: opacity 0.3s;
   }
-  #scenario-form label { display: block; margin-bottom: 0.5rem; }
+  #fieldset label { display: block; margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
   </style>
   <script 
@@ -84,6 +84,7 @@
       <span id="sweep-count"></span>
     </div>
   </fieldset>
+  <div id="inputs-forms"></div>
 
   <button id="run-model" disabled>Run model</button>
 
@@ -209,13 +210,52 @@
       URL.revokeObjectURL(url);
     }
 
+
+    function renderInputsForms() {
+      const spec = JSON.parse(pyodide.runPython("inputs_form_init()"));
+      const container = document.getElementById("inputs-forms");
+      container.innerHTML = "";
+      for (const file of spec.files) {
+        const fs = document.createElement("fieldset");
+        const legend = document.createElement("legend");
+        legend.textContent = file.title;
+        fs.appendChild(legend);
+        for (const field of file.fields) {
+          const label = document.createElement("label");
+          label.textContent = field.path + " ";
+          const input = document.createElement("input");
+          input.type = field.kind === "number" ? "number" : "text";
+          if (field.kind === "number") input.step = "any";
+          input.value = field.value;
+          input.dataset.file = file.file;
+          input.dataset.path = field.path;
+          label.appendChild(input);
+          fs.appendChild(label);
+        }
+        container.appendChild(fs);
+      }
+    }
+
+    function gatherInputsForms() {
+      const overrides = {};
+      for (const input of document.querySelectorAll("#inputs-forms input")) {
+        (overrides[input.dataset.file] ??= {})[input.dataset.path] = // ??= creates the per-file object on first use.
+          input.type === "number"
+            ? (input.value.trim() === "" ? null : Number(input.value))
+            : input.value;
+      }
+      return overrides;
+    }
+
+
     let pyodide = null;
 
     async function runFromInputs() {
       showLoading("Running model…");
       await new Promise(r => setTimeout(r, 0));   // let the overlay paint first
       try {
-        pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
+        pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`); // apparently JSON.stringify runs twice because you have to transform the object twice
+        pyodide.runPython(`write_overrides(${JSON.stringify(JSON.stringify(gatherInputsForms()))})`);
         const summary = pyodide.runPython('run_model("/ciim_inputs")');
         document.getElementById("output").textContent = summary;
         renderChart("chart-costs", pyodide.runPython("cost_chart()"));
@@ -242,6 +282,7 @@
         pyodide.runPython(appCode);                       // defines the app functions
         pyodide.runPython('materialize_inputs("/ciim_inputs")');
         populateScenarioForm();
+        renderInputsForms();
         
 
         await runFromInputs();                            // first run, same path as the button
@@ -282,6 +323,11 @@
           ? Math.round((n("f-sweep-stop") - n("f-sweep-start")) / n("f-sweep-step")) + 1 : 0;
         document.getElementById("sweep-count").textContent = count > 0 ? `${count} cases` : "";
       }));
+
+    document.getElementById("f-method").addEventListener("change", () => {
+      pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
+      renderInputsForms();
+    });
 
     main();
   </script>
