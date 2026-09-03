@@ -87,7 +87,7 @@
   <div id="inputs-forms"></div>
 
   <button id="run-model" disabled>Run model</button>
-
+  <button id="reset-inputs" type="button" disabled>Reset to defaults</button> # apparently type="button" is safer but not strictly necessary? Vibecoding :P
 
 
   <pre id="output"></pre>
@@ -327,6 +327,15 @@
     document.getElementById("f-method").addEventListener("change", () => {
       pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
       renderInputsForms();
+    });
+
+
+    document.getElementById("reset-inputs").addEventListener("click", async () => {
+      pyodide.runPython('materialize_inputs("/ciim_inputs")');
+      document.getElementById("f-pattern").value = "";
+      populateScenarioForm();
+      renderInputsForms();
+      await runFromInputs();
     });
 
     main();
