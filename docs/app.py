@@ -10,7 +10,7 @@ import yaml
 
 results = None
 sweep_params: list[str] = []
-
+currency_year = None
 
 def materialize_inputs(dest: str = "/ciim_inputs") -> None:
     """Copy the packaged input files into a writable directory.
@@ -26,11 +26,12 @@ def materialize_inputs(dest: str = "/ciim_inputs") -> None:
 
 def run_model(inputs_dir: str | None = None) -> str:
     """Run the scenario in inputs_dir (packaged defaults if None); keep results; return a summary."""
-    global results, sweep_params
+    global results, sweep_params, currency_year
     inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
     scenario = inputs.scenario
     results = run(inputs)
     sweep_params = list(scenario.sweep)
+    currency_year = inputs.currency_year
 
     lines = [
         f"method   : {scenario.deployment_method}",
