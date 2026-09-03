@@ -255,3 +255,48 @@ def write_overrides(overrides_json: str) -> None:
                 node = node[key]
             node[leaf] = value
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def export_config() -> str:
+    """The full working input set as one YAML document."""
+    root = Path("/ciim_inputs")
+    scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
+    method_name = scenario["deployment_method"]
+    pattern_name = scenario["deployment_pattern"]
+    config = {
+        "scenario": scenario,
+        "deployment_method": {
+            "name": method_name,
+            "values": yaml.safe_load(
+                (root / "deployment_methods" / f"{method_name}.yaml").read_text(encoding="utf-8")
+            ),
+        },
+        "material": yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8")),
+        "finance": yaml.safe_load((root / "finance.yaml").read_text(encoding="utf-8")),
+        "deployment_pattern": {
+            "name": pattern_name,
+            "csv": (root / "scenario" / "deployment_patterns" / pattern_name).read_text(encoding="utf-8"),
+        },
+    }
+    return yaml.safe_dump(config, sort_keys=False)
+
+
+def import_config(text: str) -> None:
+    """Replace the working inputs with a config document."""
+    config = yaml.safe_load(text)
+    root = Path("/ciim_inputs")
+    materialize_inputs(str(root))          # clean, complete tree to overwrite
+
+    method = config["deployment_method"]
+    (root / "deployment_methods" / f"{method['name']}.yaml").write_text(
+        yaml.safe_dump(method["values"], sort_keys=False), encoding="utf-8")
+    (root / "material.yaml").write_text(
+        yaml.safe_dump(config["material"], sort_keys=False), encoding="utf-8")
+    (root / "finance.yaml").write_text(
+        yaml.safe_dump(config["finance"], sort_keys=False), encoding="utf-8")
+
+    pattern = config["deployment_pattern"]
+    (root / "scenario" / "deployment_patterns" / pattern["name"]).write_text(
+        pattern["csv"], encoding="utf-8")
+    (root / "scenario" / "scenario.yaml").write_text(
+        yaml.safe_dump(config["scenario"], sort_keys=False), encoding="utf-8")
