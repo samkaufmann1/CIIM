@@ -239,7 +239,7 @@
     function gatherInputsForms() {
       const overrides = {};
       for (const input of document.querySelectorAll("#inputs-forms input")) {
-        (overrides[input.dataset.file] ??= {})[input.dataset.path] = // ??= creates the per-file object on first use.
+        (overrides[input.dataset.file] ??= {})[input.dataset.path] = 
           input.type === "number"
             ? (input.value.trim() === "" ? null : Number(input.value))
             : input.value;
