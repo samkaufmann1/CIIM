@@ -5,6 +5,8 @@ from plotly.colors import sample_colorscale
 from plotly.subplots import make_subplots
 from pathlib import Path
 import shutil
+import json
+import yaml
 
 results = None
 sweep_params: list[str] = []
@@ -172,3 +174,21 @@ def component_chart() -> str:
     fig.update_yaxes(**AXIS)
     fig.update_yaxes(title_text="cost ($B, real 2025 USD)", col=1)
     return fig.to_json()
+
+
+def scenario_form_init() -> str:
+    """Current scenario values and dropdown options, as JSON for the form."""
+    root = Path("/ciim_inputs")
+    scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
+    methods = sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml"))
+    materials = sorted(yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8")))
+    return json.dumps({"scenario": scenario, "methods": methods, "materials": materials})
+
+
+def write_scenario(scenario_json: str) -> None:
+    """Replace scenario.yaml in the working inputs dir with the form's values."""
+    data = json.loads(scenario_json)
+    if not data.get("sweep"):
+        data.pop("sweep", None)          # no sweep block rather than an empty one
+    path = Path("/ciim_inputs") / "scenario" / "scenario.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
