@@ -192,3 +192,14 @@ def write_scenario(scenario_json: str) -> None:
         data.pop("sweep", None)          # no sweep block rather than an empty one
     path = Path("/ciim_inputs") / "scenario" / "scenario.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+def pattern_csv(filename: str) -> str:
+    """The text of one deployment pattern CSV in the working inputs dir."""
+    return (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / filename).read_text(encoding="utf-8")
+
+
+def write_pattern(csv_text: str) -> str:
+    """Save an uploaded pattern CSV into the working inputs dir; return its filename."""
+    name = "uploaded_pattern.csv"
+    (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / name).write_text(csv_text, encoding="utf-8")
+    return name

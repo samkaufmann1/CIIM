@@ -60,6 +60,11 @@
     <label>altitude (m)
       <input id="f-altitude" type="number" min="1" step="any">
     </label>
+    <label>deployment pattern (Tg/year, year × latitude)
+      <input id="f-pattern" type="file" accept=".csv" disabled>
+    </label>
+    <span id="pattern-name"></span>
+    <button id="download-pattern" type="button" disabled>Download current pattern CSV</button>
     <label><input id="f-sweep-on" type="checkbox"> parameter sweep</label>
     <div id="sweep-controls" hidden>
       <label>parameter
@@ -177,6 +182,16 @@
       return scenario;
     }
 
+    function downloadText(filename, text, type = "text/csv") {
+      const blob = new Blob([text], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     let pyodide = null;
 
     async function runFromInputs() {
@@ -214,6 +229,8 @@
 
         await runFromInputs();                            // first run, same path as the button
         document.getElementById("run-model").disabled = false;
+        document.getElementById("f-pattern").disabled = false;
+        document.getElementById("download-pattern").disabled = false;
       } catch (err) {
         hideLoading();
         document.getElementById("output").textContent = "FAILED:\n" + err;
@@ -223,16 +240,21 @@
     document.getElementById("run-model").addEventListener("click", runFromInputs);
 
     document.getElementById("download-csv").addEventListener("click", () => {
-      const csv = pyodide.runPython("results_csv()");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "deployment_schedule.csv";
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadText("deployment_schedule.csv", pyodide.runPython("results_csv()"));
     });
 
+    document.getElementById("f-pattern").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      patternFile = pyodide.runPython(`write_pattern(${JSON.stringify(text)})`);
+      document.getElementById("pattern-name").textContent = `using ${file.name}`;
+    });
+
+    document.getElementById("download-pattern").addEventListener("click", () => {
+      downloadText(patternFile, pyodide.runPython(`pattern_csv(${JSON.stringify(patternFile)})`));
+    });
+    
     document.getElementById("f-sweep-on").addEventListener("change", (e) => {
       document.getElementById("sweep-controls").hidden = !e.target.checked;
     });
