@@ -113,7 +113,7 @@ def cost_chart() -> str:
 
     fig.update_layout(
         title="Annual program cost" + (f" by {param}" if swept else ""),
-        xaxis_title="year", yaxis_title="cost ($B, real 2025 USD)",
+        xaxis_title="year", yaxis_title=f"cost ($B, real {currency_year} USD)",
         **RETRO,
     )
     fig.update_xaxes(**AXIS)
@@ -173,7 +173,7 @@ def component_chart() -> str:
     fig.update_layout(title="Cost components over time", **RETRO)
     fig.update_xaxes(title_text="year", **AXIS)
     fig.update_yaxes(**AXIS)
-    fig.update_yaxes(title_text="cost ($B, real 2025 USD)", col=1)
+    fig.update_yaxes(title_text=f"cost ($B, real {currency_year} USD)", col=1)
     return fig.to_json()
 
 
