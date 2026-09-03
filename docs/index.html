@@ -31,6 +31,7 @@
     min-height: 1.3em;             /* no layout jump between quips */
     transition: opacity 0.3s;
   }
+  #output { overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -41,6 +42,8 @@
   </div>
   <h1>CIIM-SAI — proof of concept</h1>
   <pre id="output"></pre>
+  <button id="download-csv" disabled>Download results CSV</button>
+
 
   <script src="https://cdn.jsdelivr.net/pyodide/v314.0.6/full/pyodide.js"></script>
   <script>
@@ -97,9 +100,12 @@
       spinTimer = null
     }
 
+    let pyodide = null;
+
     async function main() {
+      showLoading("Loading Pyodide…")
       try {
-        const pyodide = await loadPyodide();
+        pyodide = await loadPyodide();
 
         showLoading("Installing model package…");
         await pyodide.loadPackage("micropip");
@@ -107,25 +113,29 @@
         await micropip.install("./ciim_sai-0.1.0-py3-none-any.whl");
 
         showLoading("Running model…");
-        const summary = pyodide.runPython(`
-from CIIM_SAI.run import run
-
-results = run()
-(
-    f"{len(results):,} rows — "
-    f"{results['case'].nunique()} cases x {results['year'].nunique()} years\\n"
-    f"total program cost, cheapest case:  ${'$'}{results.groupby('case')['total_cost'].sum().min()/1e9:,.2f}B\\n"
-    f"total program cost, priciest case:  ${'$'}{results.groupby('case')['total_cost'].sum().max()/1e9:,.2f}B"
-)
-        `);
+        const appCode = await (await fetch("./app.py")).text();
+        pyodide.runPython(appCode);                          // defines run_model, results_csv
+        const summary = pyodide.runPython("run_model()");
 
         document.getElementById("output").textContent = summary;
+        document.getElementById("download-csv").disabled = false;
         hideLoading();
       } catch (err) {
         hideLoading();
         document.getElementById("output").textContent = "FAILED:\n" + err;
       }
     }
+
+    document.getElementById("download-csv").addEventListener("click", () => {
+      const csv = pyodide.runPython("results_csv()");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "deployment_schedule.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
 
     main();
   </script>
