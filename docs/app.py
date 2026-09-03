@@ -3,7 +3,7 @@ from CIIM_SAI.run import run
 import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 from plotly.subplots import make_subplots
-from pathlib import Path.
+from pathlib import Path
 import shutil
 
 results = None
