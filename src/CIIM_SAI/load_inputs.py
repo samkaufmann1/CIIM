@@ -2,7 +2,7 @@
 
 The only module that touches the filesystem. Everything downstream receives
 validated, immutable objects, which is what lets the model run from the command
-line, from a notebook, or from a GUI that has values and no files.
+line, from a notebook, or from a GUI.
 """
 
 from __future__ import annotations

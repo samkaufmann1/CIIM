@@ -29,7 +29,7 @@ DataFrame. The command line, notebooks, and the web page are all just callers.
 Nothing may reimplement model logic — most relevantly, the web page must never
 compute in JavaScript what Python can compute.
 
-- `load_inputs.py` is the only module that reads files. Its pydantic schemas
+- `load_inputs.py`'s pydantic schemas
   define every input file's shape except the deployment-method files, which are
   passed through as raw dicts and validated by the method module that owns them.
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by

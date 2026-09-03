@@ -34,7 +34,7 @@ service each year, then schedules orders, deliveries, and retirements around
 unit lifetime and lead time, and prices the result: development spread over the
 years before the first order, capital spread across each unit's lead time, and
 operating costs (labor, consumables, and the deployed material itself) for the
-active fleet. A scenario may sweep any scenario parameter over a range; results
+active fleet. A scenario may sweep any numeric scenario parameter over a range; results
 are stacked into a single table, one row per (case, year).
 
 Conventions: SI base units throughout (altitude in metres, mass in kg), with one
@@ -58,8 +58,8 @@ choices:
 - **Latitude is carried but unused.** Deployment patterns are resolved by
   latitude, but the model sums across latitudes and costs the total; nothing
   yet depends on where material goes.
-- **Single-parameter sweeps in practice.** The sweep machinery takes a Cartesian
-  product of any number of parameters, but only scenario-level parameters are
+- **Single-parameter sweeps in practice.** The sweep machinery is ultimately intended to take a Cartesian
+  product of any number of parameters, but currently only scenario-level parameters are
   sweepable, and the GUI and charts assume one at a time.
 
 ## Running it
@@ -82,9 +82,6 @@ results = run()   # one DataFrame, all cases
 ```
 
 To change what is modeled, edit the YAML files under `src/CIIM_SAI/inputs/`.
-Inputs are validated on load: a typo'd key, an out-of-range value, or a
-malformed deployment pattern fails immediately with a message naming the file
-and field.
 
 ## The browser version
 
