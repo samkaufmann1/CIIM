@@ -1,6 +1,6 @@
 """Reading and validating CIIM input files.
 
-The only module that touches the filesystem. Everything downstream receives
+Everything downstream receives
 validated, immutable objects, which is what lets the model run from the command
 line, from a notebook, or from a GUI.
 """
@@ -95,16 +95,6 @@ class Scenario(Frozen):
     # Numeric ranges only for now. Sweeping deployment_method or
     # deployment_pattern needs a list of strings, i.e. SweepRange | list[...].
     
-    @model_validator(mode="after")
-    def sweep_targets_exist(self) -> Scenario: # function to determine sweepable parameters in scenario
-        sweepable = set(type(self).model_fields) - {"sweep"}
-        for key in self.sweep:
-            if key not in sweepable:
-                raise ValueError(
-                    f"cannot sweep {key!r}: not a scenario parameter. "
-                    f"Sweepable: {', '.join(sorted(sweepable))}"
-                )
-        return self
 
 
     
@@ -178,37 +168,104 @@ def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
     return df * 1.0e9   # pattern CSVs are Tg/year; the model works in kg
 
 
+
 def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
-    """Load and validate the full input set from disk."""
-    scenario = Scenario(**read_yaml(inputs_dir / "scenario" / "scenario.yaml"))
+    """Load and validate the full input set from disk.
+
+    Each input file may carry a `sweepable:` list naming the variables in it a
+    sweep may vary. Those lists are removed here, before the schemas see the
+    data, and checked against the scenario's sweep block — this is the only
+    place every input file is in scope at once.
+    """
+    scenario_data = read_yaml(inputs_dir / "scenario" / "scenario.yaml")
+    sweepable = pop_sweepable("scenario", scenario_data)
+    scenario = Scenario(**scenario_data)
+
+    material_data = read_yaml(inputs_dir / "material.yaml")
+    sweepable += pop_sweepable("material", material_data)
+
+    method_data = read_yaml(
+        inputs_dir / "deployment_methods" / f"{scenario.deployment_method}.yaml"
+    )
+    sweepable += pop_sweepable("method", method_data)
+
+    for name in scenario.sweep:
+        if name not in sweepable:
+            raise ValueError(
+                f"cannot sweep {name!r}: no input file declares it sweepable. "
+                f"Sweepable: {', '.join(sweepable)}"
+            )
+
     return Inputs(
         scenario=scenario,
-        materials={k: Material(**v) for k, v in read_yaml(inputs_dir / "material.yaml").items()},
+        materials={k: Material(**v) for k, v in material_data.items()},
         currency_year=read_yaml(inputs_dir / "finance.yaml")["currency_year"],
         pattern=load_pattern(scenario.deployment_pattern, inputs_dir),
-        method=read_yaml(
-            inputs_dir / "deployment_methods" / f"{scenario.deployment_method}.yaml"
-        ),
+        method=method_data,
         inputs_dir=inputs_dir,
     )
 
 
-def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
-    """Rebuild `base` with scenario overrides applied, re-running validation.
-    Overrides go through the Scenario constructor rather than mutating anything,
-    so a swept value gets the same checks a hand-written one would. Only the
-    files an override actually changed are re-read.
-    """
-    scenario = Scenario(**{**base.scenario.model_dump(), **overrides})
 
+def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
+    """Rebuild `base` with overrides applied, re-running validation.
+
+    Overrides are the namespaced paths a sweep block names, so each one is
+    routed to the part of the input set that owns it. Scenario and material
+    values go back through their constructors rather than being assigned, so a
+    swept value gets the same checks a hand-written one would; method values
+    land in a raw dict and are checked later by the method module that owns it.
+    """
+    by_root: dict[str, dict[str, Any]] = {"scenario": {}, "material": {}, "method": {}}
+    for path, value in overrides.items():
+        root, _, rest = path.partition(".")
+        if root not in by_root:
+            raise ValueError(
+                f"override {path!r} must start with scenario., material. or method."
+            )
+        by_root[root][rest] = value
+
+    scenario = Scenario(**{**base.scenario.model_dump(), **by_root["scenario"]})
+
+    materials = base.materials
+    for path, value in by_root["material"].items():
+        name, _, field = path.partition(".")
+        materials = {**materials,
+                     name: Material(**{**materials[name].model_dump(), field: value})}
+
+    # A method override needs somewhere safe to land: base.method is shared by
+    # every case in the sweep, so re-read the file to get a dict nobody else
+    # holds. A fresh read still carries the sweepable list its schema forbids.
     method = base.method
-    if scenario.deployment_method != base.scenario.deployment_method:
+    if by_root["method"] or scenario.deployment_method != base.scenario.deployment_method:
         method = read_yaml(
             base.inputs_dir / "deployment_methods" / f"{scenario.deployment_method}.yaml"
         )
+        pop_sweepable("method", method)
+    for path, value in by_root["method"].items():
+        node = method
+        *parents, leaf = path.split(".")
+        for key in parents:
+            node = node[key]
+        node[leaf] = value
 
     pattern = base.pattern
     if scenario.deployment_pattern != base.scenario.deployment_pattern:
         pattern = load_pattern(scenario.deployment_pattern, base.inputs_dir)
 
-    return replace(base, scenario=scenario, method=method, pattern=pattern)
+    return replace(base, scenario=scenario, materials=materials,
+                   method=method, pattern=pattern)
+
+
+def pop_sweepable(namespace: str, data: dict[str, Any]) -> list[str]:
+    """Remove `data`'s `sweepable:` list and return its paths, namespaced.
+
+    Removes rather than reads: the schemas that validate these files forbid
+    unknown keys, so `sweepable` has to be gone before they see the data.
+    Paths are relative to their own file going in and namespaced coming out,
+    so `unit.cost` in teleporter.yaml becomes `method.unit.cost`.
+
+    Called by load_inputs to check the sweep block, and by docs/app.py to fill
+    the GUI's parameter list.
+    """
+    return [f"{namespace}.{name}" for name in data.pop("sweepable", [])]

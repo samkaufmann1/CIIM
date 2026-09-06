@@ -11,13 +11,14 @@ deployed_material: SO2
 altitude: 20000
 
 # Optional parameter sweep capability. Each entry means a parameter sweep of the given variable. 
-# Currently implemented: start/stop/step range; stop is inclusive.
-# Capabilities to be implemented: TODO later
-# - List of values
-# - Multi-dimensional sweep, whose output then becomes an array with a number of dimensions
-# - equal to the number of parameters being swept.
+# Currently implemented: start/stop/step range; stop is inclusive. In a multi-dimensional sweep,
+# the model simulates a scenario space with a number of dimensions equal to the number of parameters being swept.
 sweep:
-  altitude:
+  scenario.altitude:
     start: 15000
     stop: 30000
     step: 1000
+
+
+sweepable:
+  - altitude

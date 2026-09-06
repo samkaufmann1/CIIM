@@ -29,12 +29,14 @@ All inputs are files packaged under `src/CIIM_SAI/inputs/`:
 | `material.yaml` | Materials: cost per kg, molar mass, sources |
 | `finance.yaml` | Currency conventions |
 
+All files indicate which variables, if any, can be used as part of a parameter sweep.
+
 From the deployment pattern, the model determines how many units must be in
 service each year, then schedules orders, deliveries, and retirements around
 unit lifetime and lead time, and prices the result: development spread over the
 years before the first order, capital spread across each unit's lead time, and
 operating costs (labor, consumables, and the deployed material itself) for the
-active fleet. A scenario may sweep any numeric scenario parameter over a range; results
+active fleet. A scenario may sweep any numeric parameter over a range; results
 are stacked into a single table, one row per (case, year).
 
 Conventions: SI base units throughout (altitude in metres, mass in kg), with one
@@ -58,9 +60,6 @@ choices:
 - **Latitude is carried but unused.** Deployment patterns are resolved by
   latitude, but the model sums across latitudes and costs the total; nothing
   yet depends on where material goes.
-- **Single-parameter sweeps in practice.** The sweep machinery is ultimately intended to take a Cartesian
-  product of any number of parameters, but currently only scenario-level parameters are
-  sweepable, and the GUI and charts assume one at a time.
 
 ## Running it
 

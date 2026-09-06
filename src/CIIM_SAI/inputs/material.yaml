@@ -12,3 +12,8 @@ SO2:
 unobtanium:
   cost: 1.0e+3
   source: fictional
+
+
+sweepable:
+  - SO2.cost
+  - unobtanium.cost

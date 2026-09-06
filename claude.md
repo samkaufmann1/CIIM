@@ -20,6 +20,11 @@ readable and auditable by one person, not a production system.
 - Validation lives in the schemas, not in the calculations. If a value could be
   wrong, add a pydantic constraint or a `model_validator` rather than a check at
   the point of use.
+- Validation lives in the schemas, not in the calculations. If a value could be
+wrong, add a pydantic constraint or a `model_validator` rather than a check at
+the point of use. The one exception is the sweep block's targets, checked in
+`load_inputs`: a `Scenario` validator can only see `Scenario`, and whether a
+path is sweepable depends on every input file.
 
 ## Architecture
 
@@ -32,6 +37,13 @@ compute in JavaScript what Python can compute.
 - `load_inputs.py`'s pydantic schemas
   define every input file's shape except the deployment-method files, which are
   passed through as raw dicts and validated by the method module that owns them.
+- Each input file declares which of its own variables may be swept, in a
+  top-level `sweepable:` list of paths relative to that file. `load_inputs`
+  strips those declarations before any schema sees the data — every schema
+  forbids unknown keys — and namespaces them by file, so a sweep block names
+  `scenario.altitude` or `method.unit.cost`. Declaring per file is what keeps
+  a new deployment method from needing an edit anywhere central, and what
+  lets method modules stay ignorant that sweeping exists.  
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by
   importing `deploy_<method>` dynamically — adding a method requires no edit here.
 - A deployment method module's entire contract is `deployment_schedule(inputs)

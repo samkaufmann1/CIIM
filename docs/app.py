@@ -15,7 +15,7 @@ Module-level `results`, `sweep_params` and `currency_year` persist between the
 separate JavaScript calls that make up one run-then-render-then-export cycle.
 """
 
-from CIIM_SAI.load_inputs import load_inputs, INPUTS_DIR
+from CIIM_SAI.load_inputs import load_inputs, pop_sweepable, INPUTS_DIR
 from CIIM_SAI.run import run
 import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
@@ -97,7 +97,15 @@ AXIS = dict(gridcolor="#e8e8e4", zeroline=False)
 
 
 def cost_chart() -> str:
-    """All cases: total cost vs year, colored by the swept parameter."""
+    """All cases: total cost vs year, colored by the swept parameter.
+
+    Returns "" when more than one parameter is swept: the lines would still be
+    correct, but there is nothing meaningful to colour them by, and a colourbar
+    of case numbers explains nothing.
+    """
+    if len(sweep_params) > 1:
+        return ""
+
     param = sweep_params[0] if len(sweep_params) == 1 else "case"
     values = sorted(results[param].unique())
     lo, hi = values[0], values[-1]
@@ -195,32 +203,41 @@ def component_chart() -> str:
 
 
 def scenario_form_init() -> str:
-    """Current scenario values and dropdown options, as JSON for the form."""
+    """Current scenario values, dropdown options, and sweepable parameters."""
     root = Path("/ciim_inputs")
     scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
-    methods = sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml"))
-    materials = sorted(yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8")))
-    return json.dumps({"scenario": scenario, "methods": methods, "materials": materials})
+    material = yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8"))
+    method = yaml.safe_load(
+        (root / "deployment_methods" / f"{scenario['deployment_method']}.yaml")
+        .read_text(encoding="utf-8"))
+
+    sweepable = (pop_sweepable("scenario", scenario)
+                 + pop_sweepable("material", material)
+                 + pop_sweepable("method", method))
+
+    return json.dumps({
+        "scenario": scenario,
+        "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
+        "materials": sorted(material),
+        "sweepable": sweepable,
+    })
 
 
 def write_scenario(scenario_json: str) -> None:
     """Replace scenario.yaml in the working inputs dir with the form's values."""
-    data = json.loads(scenario_json)
-    if not data.get("sweep"):
-        data.pop("sweep", None)          # no sweep block rather than an empty one
     path = Path("/ciim_inputs") / "scenario" / "scenario.yaml"
+    data = json.loads(scenario_json)
+    existing = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if "sweepable" in existing:
+        data["sweepable"] = existing["sweepable"]     # a declaration, not a form field
+    if not data.get("sweep"):
+        data.pop("sweep", None)
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
 
 def pattern_csv(filename: str) -> str:
     """The text of one deployment pattern CSV in the working inputs dir."""
     return (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / filename).read_text(encoding="utf-8")
-
-
-def write_pattern(csv_text: str) -> str:
-    """Save an uploaded pattern CSV into the working inputs dir; return its filename."""
-    name = "uploaded_pattern.csv"
-    (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / name).write_text(csv_text, encoding="utf-8")
-    return name
 
 
 
@@ -235,7 +252,10 @@ def flatten(data: dict, prefix: str = "") -> list[tuple[str, object]]:
             pairs.append((path, value))
     return pairs
 
-
+    # Each file is nested, but the form is a flat list of boxes. flatten() names
+    # every setting by the chain of keys that reaches it — for instance
+    # unit.labor.teleportationist.salary. The page sends that name back with the
+    # edited value, and write_overrides uses it to find the setting again.
 def inputs_form_init() -> str:
     """Field descriptions for the non-scenario input files, as JSON for the form."""
     root = Path("/ciim_inputs")
@@ -249,6 +269,7 @@ def inputs_form_init() -> str:
     spec = []
     for rel, title in files:
         data = yaml.safe_load((root / rel).read_text(encoding="utf-8"))
+        data.pop("sweepable", None)
         fields = [
             {"path": path, "value": value,
              "kind": "number" if isinstance(value, (int, float)) and not isinstance(value, bool) else "text"}
@@ -317,3 +338,10 @@ def import_config(text: str) -> None:
         pattern["csv"], encoding="utf-8")
     (root / "scenario" / "scenario.yaml").write_text(
         yaml.safe_dump(config["scenario"], sort_keys=False), encoding="utf-8")
+
+def write_pattern(csv_text: str, filename: str) -> str:
+    """Save an uploaded pattern CSV into the working inputs dir; return its filename."""
+    name = Path(filename).name or "uploaded_pattern.csv"
+    (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / name).write_text(
+        csv_text, encoding="utf-8")
+    return name

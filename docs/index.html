@@ -1,4 +1,4 @@
-
+<script>
 /* CIIM-SAI browser GUI.
 *
 * The model is Python. This file loads it and displays what it returns; it
@@ -18,18 +18,16 @@
 * and the model's own loader validates them. Bad input surfaces as the
 * loader's error message, on the status line and in the output area.
 *
-* State that outlives a call: `pyodide` (the interpreter) and `patternFile`
-* (the active deployment pattern's filename, which the forms round-trip but
-* only the upload handler changes).
+* State that outlives a call: `pyodide` (the interpreter), `patternFile` (the
+* active deployment pattern's filename, which the forms round-trip but only the
+* upload handler changes), and `sweepable` (the parameters the current input
+* files allow sweeping, refreshed whenever the scenario form is repopulated).
 *
-* Passing values into runPython: JSON.stringify once turns a string into a
-* Python string literal; twice turns an object into JSON text and then into
-* a literal. Both are used below.
 *
 * The loading overlay, spinner and quips are cosmetic, and freeze while
 * Python runs — everything here is on the browser's single main thread.
 */
-
+</script>
 
 <!DOCTYPE html>
 <html>
@@ -75,6 +73,8 @@
   #run-status.error { color: #a33; }
 
   fieldset label { display: block; margin-bottom: 0.5rem; }
+  .sweep-row { margin-bottom: 0.5rem; }
+  .sweep-row label { display: inline; margin-bottom: 0; }
   .controls { margin-bottom: 0.5rem; }
   #output { overflow-x: auto; }
   </style>
@@ -117,14 +117,10 @@
     </label>
     <button id="download-pattern" type="button" disabled>Download current pattern CSV</button>
     <span id="pattern-name"></span>
-    <label><input id="f-sweep-on" type="checkbox"> parameter sweep</label>
-    <div id="sweep-controls" hidden>
-      <label>parameter
-        <select id="f-sweep-param"><option>altitude</option></select>
-      </label>
-      <label>start <input id="f-sweep-start" type="number" step="any"></label>
-      <label>stop  <input id="f-sweep-stop"  type="number" step="any"></label>
-      <label>step  <input id="f-sweep-step"  type="number" step="any" min="0"></label>
+    <div id="sweep-block">
+      <strong>parameter sweep</strong>
+      <div id="sweep-rows"></div>
+      <button id="add-sweep" type="button">Add parameter</button>
       <span id="sweep-count"></span>
     </div>
   </fieldset>
@@ -209,12 +205,69 @@
     }
 
     function renderChart(divId, figJson) {
+      const div = document.getElementById(divId);
+      div.hidden = !figJson; // if a figure is empty, hide it
+      if (!figJson) { Plotly.purge(div); return; }
       const fig = JSON.parse(figJson);
       Plotly.newPlot(divId, fig.data, fig.layout, { responsive: true });
     }
 
-
     let patternFile = null
+    let sweepable = [];          // filled by populateScenarioForm
+    
+    function sweepRows() {
+      return [...document.querySelectorAll("#sweep-rows .sweep-row")];
+    }
+
+    // Cases are the product of the rows: run.py takes every combination.
+    function updateSweepCount() {
+      const rows = sweepRows();
+      const params = rows.map(r => r.querySelector("select").value);
+      let cases = 1;
+      for (const row of rows) {
+        const n = (key) => Number(row.querySelector(`input[data-key="${key}"]`).value);
+        cases *= n("step") > 0 ? Math.round((n("stop") - n("start")) / n("step")) + 1 : 0;
+      }
+      // Two rows naming one parameter collapse to a single sweep entry, which
+      // would silently run fewer cases than the rows suggest.
+      const duplicate = new Set(params).size !== params.length;
+      document.getElementById("sweep-count").textContent =
+        duplicate ? "a parameter is listed twice"
+        : rows.length && cases > 0 ? `${cases} cases` : "";
+    }
+
+    function addSweepRow(param, range) {
+      const row = document.createElement("div");
+      row.className = "sweep-row";
+
+      const select = document.createElement("select");
+      for (const p of sweepable) select.add(new Option(p, p, false, p === param));
+      select.addEventListener("change", updateSweepCount);
+      row.appendChild(select);
+
+      for (const key of ["start", "stop", "step"]) {
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "any";
+        input.dataset.key = key;
+        if (range) input.value = range[key];
+        input.addEventListener("input", updateSweepCount);
+        const label = document.createElement("label");
+        label.textContent = ` ${key} `;
+        label.appendChild(input);
+        row.appendChild(label);
+      }
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "remove";
+      remove.addEventListener("click", () => { row.remove(); updateSweepCount(); });
+      row.appendChild(remove);
+
+      document.getElementById("sweep-rows").appendChild(row);
+      updateSweepCount();
+    }
+
 
     function populateScenarioForm() {
       const init = JSON.parse(pyodide.runPython("scenario_form_init()"));
@@ -230,14 +283,18 @@
       patternFile = init.scenario.deployment_pattern;   // carried until the CSV step
       document.getElementById("pattern-name").textContent = patternFile;
 
-      const sweep = (init.scenario.sweep || {}).altitude;
-      document.getElementById("f-sweep-on").checked = Boolean(sweep);
-      document.getElementById("sweep-controls").hidden = !sweep;
-      if (sweep) {
-        document.getElementById("f-sweep-start").value = sweep.start;
-        document.getElementById("f-sweep-stop").value = sweep.stop;
-        document.getElementById("f-sweep-step").value = sweep.step;
+      // One row per parameter the saved sweep names. The sweep is stored in
+      // scenario.yaml, but a parameter may be declared in the deployment
+      // method's file, so switching methods can leave a saved sweep naming a
+      // parameter the new method doesn't have. init.sweepable is what the
+      // current files offer; anything missing from it is dropped rather than
+      // shown as a row that cannot run.
+      sweepable = init.sweepable;
+      document.getElementById("sweep-rows").innerHTML = "";
+      for (const [param, range] of Object.entries(init.scenario.sweep || {})) {
+        if (sweepable.includes(param)) addSweepRow(param, range);
       }
+      updateSweepCount(); // The trailing updateSweepCount() is for the no-rows case: addSweepRow calls it, but with zero rows nothing would, and a previous run's "16 cases" would linger.
     }
 
     function gatherScenario() {
@@ -248,15 +305,18 @@
         deployed_material: document.getElementById("f-material").value,
         altitude: num("f-altitude"),
       };
-      if (document.getElementById("f-sweep-on").checked) {
-        const param = document.getElementById("f-sweep-param").value;
-        scenario.sweep = { [param]: {
-          start: num("f-sweep-start"), stop: num("f-sweep-stop"), step: num("f-sweep-step"),
-        }};
+
+      // Every row becomes one entry; no rows means no sweep key at all.
+      const sweep = {};
+      for (const row of sweepRows()) {
+        const n = (key) => Number(row.querySelector(`input[data-key="${key}"]`).value);
+        sweep[row.querySelector("select").value] =
+          { start: n("start"), stop: n("stop"), step: n("step") };
       }
+      if (Object.keys(sweep).length) scenario.sweep = sweep;
+
       return scenario;
     }
-
     function downloadText(filename, text, type = "text/csv") {
       const blob = new Blob([text], { type });
       const url = URL.createObjectURL(blob);
@@ -380,27 +440,21 @@
       const file = e.target.files[0];
       if (!file) return;
       const text = await file.text();
-      patternFile = pyodide.runPython(`write_pattern(${JSON.stringify(text)})`);
-      document.getElementById("pattern-name").textContent = file.name;
+      patternFile = pyodide.runPython(
+        `write_pattern(${JSON.stringify(text)}, ${JSON.stringify(file.name)})`);
+      document.getElementById("pattern-name").textContent = patternFile;
     });
 
     document.getElementById("download-pattern").addEventListener("click", () => {
       downloadText(patternFile, pyodide.runPython(`pattern_csv(${JSON.stringify(patternFile)})`));
     });
     
-    document.getElementById("f-sweep-on").addEventListener("change", (e) => {
-      document.getElementById("sweep-controls").hidden = !e.target.checked;
-    });
-    ["f-sweep-start", "f-sweep-stop", "f-sweep-step"].forEach(id =>
-      document.getElementById(id).addEventListener("input", () => {
-        const n = (id) => Number(document.getElementById(id).value);
-        const count = n("f-sweep-step") > 0
-          ? Math.round((n("f-sweep-stop") - n("f-sweep-start")) / n("f-sweep-step")) + 1 : 0;
-        document.getElementById("sweep-count").textContent = count > 0 ? `${count} cases` : "";
-      }));
+    document.getElementById("add-sweep").addEventListener("click", () => addSweepRow());
+
 
     document.getElementById("f-method").addEventListener("change", () => {
       pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
+      populateScenarioForm();      // the new method declares a different sweepable set
       renderInputsForms();
     });
 

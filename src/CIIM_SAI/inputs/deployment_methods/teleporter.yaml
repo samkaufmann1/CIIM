@@ -20,3 +20,14 @@ unit:
   consumption:
     unobtanium:
       kg_per_year_per_altitude: 1.0   # kg per teleporter per year, per meter of altitude
+
+
+sweepable:
+  - development.NRE
+  - development.duration_years
+  - unit.cost
+  - unit.lifetime_years
+  - unit.capacity_per_year
+  - unit.lead_time_years
+  - unit.labor.teleportationist.salary
+  - unit.consumption.unobtanium.kg_per_year_per_altitude
