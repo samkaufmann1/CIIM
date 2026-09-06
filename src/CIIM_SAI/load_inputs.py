@@ -31,13 +31,22 @@ class Frozen(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+class Forcing(Frozen):
+    """The radiative effect of a deployed material, in material.yaml."""
+
+    per_mass: float = Field(gt=0, description="W/m2 per kg/year injected")
+    reference_lifetime_months: float = Field(
+        gt=0, description="Residence time per_mass was calibrated at; only its ratio is used"
+    )
+    source: str
+
 
 class Material(Frozen):
     """One entry in material.yaml."""
 
     cost: float = Field(ge=0, description="USD per kg of this material")
     source: str = Field(description="Where the cost figure came from")
-    molar_mass: float | None = Field(default=None, gt=0, lt=1, description="kg/mol")
+    forcing: Forcing | None = None   # only a deployed material needs one
 
 
 class SweepRange(Frozen):
@@ -235,6 +244,35 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     )
 
 
+def set_at(data: dict[str, Any], path: str, value: Any) -> None:
+    """Set the value at dotted `path` inside a nested dict, in place.
+
+    `path` is a chain of keys joined by dots -- the same spelling the sweepable
+    lists use. Setting "forcing.per_mass" to 2e-10 in
+
+        {"cost": 0.2, "forcing": {"per_mass": 1e-10, "source": "..."}}
+
+    reaches into data["forcing"] and sets its "per_mass" key, leaving "cost"
+    and "source" untouched.
+
+    Nothing is copied first: both callers already hold a dict nobody else has
+    -- one from model_dump(), one freshly re-read from file -- so writing into
+    it cannot affect anything outside.
+    """
+    keys = path.split(".")        # "forcing.per_mass" -> ["forcing", "per_mass"]
+
+    # Step down one key at a time until `node` is the dict holding the last
+    # key. For a one-level path like "cost" this loop runs zero times and
+    # `node` stays `data` itself.
+    node = data
+    for key in keys[:-1]:         # every key except the last one
+        node = node[key]
+
+    # `node` is a dict inside `data`, not a copy of one, so assigning through
+    # it changes `data`. That is why this function returns nothing.
+    node[keys[-1]] = value        # the last key
+
+
 
 def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
     """Rebuild `base` with overrides applied, re-running validation.
@@ -256,11 +294,16 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
 
     scenario = Scenario(**{**base.scenario.model_dump(), **by_root["scenario"]})
 
+    # A material override names a path inside one material, like
+    # "SO2.forcing.per_mass": the first key picks the material and the rest is
+    # a path within it. model_dump() hands back a plain nested dict to edit,
+    # and rebuilding the Material from it re-runs the schema's validation.
     materials = base.materials
     for path, value in by_root["material"].items():
-        name, _, field = path.partition(".")
-        materials = {**materials,
-                     name: Material(**{**materials[name].model_dump(), field: value})}
+        name, _, rest = path.partition(".")
+        data = materials[name].model_dump()
+        set_at(data, rest, value)
+        materials = {**materials, name: Material(**data)}
 
     # A method override needs somewhere safe to land: base.method is shared by
     # every case in the sweep, so re-read the file to get a dict nobody else
@@ -272,11 +315,7 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
         )
         pop_sweepable("method", method)
     for path, value in by_root["method"].items():
-        node = method
-        *parents, leaf = path.split(".")
-        for key in parents:
-            node = node[key]
-        node[leaf] = value
+        set_at(method, path, value)
 
     pattern = base.pattern
     if (scenario.deployment_pattern is not None

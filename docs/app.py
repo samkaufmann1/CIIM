@@ -274,6 +274,10 @@ def inputs_form_init() -> str:
             {"path": path, "value": value,
              "kind": "number" if isinstance(value, (int, float)) and not isinstance(value, bool) else "text"}
             for path, value in flatten(data)
+            # `source` records where a figure came from. It belongs in a paper
+            # or in an exported config, not in a box someone can type over.
+            # So exclude it here.
+            if path.split(".")[-1] != "source"
         ]
         spec.append({"file": rel, "title": title, "fields": fields})
     return json.dumps({"files": spec})

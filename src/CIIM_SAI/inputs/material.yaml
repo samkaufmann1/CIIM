@@ -2,12 +2,18 @@
 # Keys are chemical formulas or common names
 #
 # Units are SI base units or USD unless noted otherwise in the variable name.
-# So molar_mass is kg/mol, cost is dollars per kilogram of that material.
+# So cost is dollars per kilogram of that material.
 
 SO2:
-  molar_mass: 0.064058
   cost: 0.2
   source: placeholder
+  forcing:
+    per_mass: 1.0e-10                 # W/m2 per kg/year injected
+    reference_lifetime_months: 30.25  # the residence time this figure was calibrated at
+    source: >-
+      Kravitz et al. 2017, doi:10.1002/2017JD026874. This lifetime is the value on the Toohey chart 
+      that corresponds to the injection location in the Kravitz paper. It's not a great reference point,
+      but it maintains an apples-to-apples comparison in this case.
 
 unobtanium:
   cost: 1.0e+3
@@ -16,4 +22,6 @@ unobtanium:
 
 sweepable:
   - SO2.cost
+  - SO2.forcing.per_mass
+  - SO2.forcing.reference_lifetime_months
   - unobtanium.cost
