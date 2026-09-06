@@ -159,27 +159,16 @@ def read_yaml(path: Path) -> dict[str, Any]:
         raise ValueError(f"{path} must contain a YAML mapping (it may be empty or comments only)")
     return data
 
+def check_years(df: pd.DataFrame, path: Path) -> None:
+    """The checks every year-indexed input file shares.
 
-def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
-    """Read a deployment pattern CSV and convert it to kg per year."""
-    path = inputs_dir / "scenario" / "deployment_patterns" / filename
-    if not path.exists():
-        raise FileNotFoundError(f"deployment pattern not found: {path}")
-
-    df = pd.read_csv(path, index_col="year")
-    df.index = df.index.astype(int)
-    df.columns = df.columns.astype(int)
-    df.index.name = "year"
-    df.columns.name = "latitude"
-
-    # error checking for deplyoment pattern file
-
+    Such a file has to cover a solid block of years: a gap or a repeat means
+    the model would quietly run a different schedule than the file describes.
+    """
     if df.empty:
         raise ValueError(f"{path} has no data rows")
     if df.isna().any().any():
-        raise ValueError(f"{path} has blank cells; every year and latitude needs a value")
-    if (df < 0).any().any():
-        raise ValueError(f"{path} has negative injection rates")
+        raise ValueError(f"{path} has blank cells; every year needs a value in every column")
 
     years = df.index
     if years.min() < 2000 or years.max() > 2200:
@@ -195,8 +184,64 @@ def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
             f"{path} years must be consecutive: "
             + (f"missing {missing}" if missing else "years are out of order")
         )
+
+
+def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
+    """Read a deployment pattern CSV and convert it to kg per year."""
+    path = inputs_dir / "scenario" / "deployment_patterns" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"deployment pattern not found: {path}")
+
+    df = pd.read_csv(path, index_col="year")
+    df.index = df.index.astype(int)
+    df.columns = df.columns.astype(int)
+    df.index.name = "year"
+    df.columns.name = "latitude"
+
+    check_years(df, path)
+    if (df < 0).any().any():
+        raise ValueError(f"{path} has negative injection rates")
+
     return df * 1.0e9   # pattern CSVs are Tg/year; the model works in kg
 
+
+TEMPERATURE_COLUMNS = ["temperature_without_sai", "temperature_target"]
+
+
+def load_temperature_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
+    """Read a temperature pattern CSV: warming expected, and warming wanted.
+
+    Both columns are anomalies in degC against any consistent baseline. Only
+    their difference is ever used, so which baseline does not matter, as long
+    as both columns share one.
+    """
+    path = inputs_dir / "scenario" / "temperature_patterns" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"temperature pattern not found: {path}")
+
+    df = pd.read_csv(path, index_col="year")
+    df.index = df.index.astype(int)
+    df.index.name = "year"
+
+    if list(df.columns) != TEMPERATURE_COLUMNS:
+        raise ValueError(
+            f"{path} must have columns year, {', '.join(TEMPERATURE_COLUMNS)}; "
+            f"got year, {', '.join(map(str, df.columns))}"
+        )
+
+    check_years(df, path)
+
+    # A year whose target sits above the warming expected without SAI needs no
+    # deployment, which is the ordinary way a programme begins; climatology
+    # clamps those to zero. But a file where no year needs cooling describes
+    # nothing to model, and the usual cause is the columns being swapped.
+    if not (df[TEMPERATURE_COLUMNS[0]] > df[TEMPERATURE_COLUMNS[1]]).any():
+        raise ValueError(
+            f"{path} never requires cooling: {TEMPERATURE_COLUMNS[1]} is at or above "
+            f"{TEMPERATURE_COLUMNS[0]} in every year. Are the two columns swapped?"
+        )
+
+    return df
 
 
 def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
@@ -229,6 +274,7 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     if scenario.deployment_pattern is not None:
         pattern = load_pattern(scenario.deployment_pattern, inputs_dir)
     else:
+        load_temperature_pattern(scenario.temperature_pattern, inputs_dir)
         raise NotImplementedError(
             "temperature_pattern needs the climatology module, which does not exist yet"
         )

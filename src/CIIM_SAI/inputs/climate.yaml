@@ -1,0 +1,25 @@
+# CIIM — climate inputs
+#
+# The simplified climate representation that turns a temperature target into a
+# deployed mass. Read only when scenario.yaml names a temperature_pattern; the
+# deployment_pattern override skips this file entirely.
+#
+# Units are SI base units or USD unless noted otherwise in the variable name.
+
+# Global mean temperature response to radiative forcing applied at a given
+# injection latitude, in degC per W/m2. Not "climate sensitivity" in the ECS
+# sense: it folds in the greater efficacy of forcing applied at high latitudes.
+# These latitudes are the grid — a scenario may only inject at one of them.
+cooling_per_forcing:
+  0: 0.5
+  15: 0.6
+  30: 0.7
+  45: 0.8
+  60: 0.9
+source: TODO — Govindasamy Bala and others
+
+# Stratospheric residence time by injection altitude and latitude, in months.
+# Only its ratio to a material's forcing.reference_lifetime_months is used, so
+# months need no conversion to years. Altitudes are interpolated between rows;
+# latitudes are not, and must match cooling_per_forcing exactly.
+stratospheric_lifetimes: toohey_2025.csv
