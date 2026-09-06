@@ -88,18 +88,39 @@ class Scenario(Frozen):
     """scenario.yaml: what the model is being asked to do."""
 
     deployment_method: str
-    deployment_pattern: str
     deployed_material: str
     altitude: float = Field(gt=0, description="Injection altitude, metres")
+
+    # Exactly one of these two. deployment_pattern names the deployed masses
+    # directly and skips climatology. temperature_pattern names a cooling
+    # requirement for climatology to convert into masses, which needs a
+    # latitude to inject at; an override pattern carries its own latitudes.
+    deployment_pattern: str | None = None
+    temperature_pattern: str | None = None
+    latitude: int | None = Field(
+        default=None, ge=0, le=90,
+        description="Injection latitude, degrees; deployed half north and half south",
+    )
+
     sweep: dict[str, SweepRange] = Field(default_factory=dict)
     # Numeric ranges only for now. Sweeping deployment_method or
     # deployment_pattern needs a list of strings, i.e. SweepRange | list[...].
-    
 
-
-    
-
-
+    @model_validator(mode="after")
+    def exactly_one_deployment_source(self) -> Scenario:
+        if bool(self.deployment_pattern) == bool(self.temperature_pattern):
+            raise ValueError(
+                "name exactly one of deployment_pattern (deployed masses directly) "
+                "or temperature_pattern (a cooling requirement for climatology)"
+            )
+        if self.temperature_pattern and self.latitude is None:
+            raise ValueError("temperature_pattern needs a latitude to inject at")
+        if self.deployment_pattern and self.latitude is not None:
+            raise ValueError(
+                "latitude is not used with deployment_pattern: an override pattern "
+                "carries its own latitudes in its columns"
+            )
+        return self
 
 
 @dataclass(frozen=True)
@@ -196,11 +217,19 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
                 f"Sweepable: {', '.join(sweepable)}"
             )
 
+    if scenario.deployment_pattern is not None:
+        pattern = load_pattern(scenario.deployment_pattern, inputs_dir)
+    else:
+        raise NotImplementedError(
+            "temperature_pattern needs the climatology module, which does not exist yet"
+        )
+
+
     return Inputs(
         scenario=scenario,
         materials={k: Material(**v) for k, v in material_data.items()},
         currency_year=read_yaml(inputs_dir / "finance.yaml")["currency_year"],
-        pattern=load_pattern(scenario.deployment_pattern, inputs_dir),
+        pattern=pattern,
         method=method_data,
         inputs_dir=inputs_dir,
     )
@@ -250,7 +279,8 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
         node[leaf] = value
 
     pattern = base.pattern
-    if scenario.deployment_pattern != base.scenario.deployment_pattern:
+    if (scenario.deployment_pattern is not None
+        and scenario.deployment_pattern != base.scenario.deployment_pattern):
         pattern = load_pattern(scenario.deployment_pattern, base.inputs_dir)
 
     return replace(base, scenario=scenario, materials=materials,
