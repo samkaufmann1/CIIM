@@ -351,11 +351,21 @@ def write_overrides(overrides_json: str) -> None:
 
 
 def export_config() -> str:
-    """The full working input set as one YAML document."""
+    """The full working input set as one YAML document.
+
+    Only the files this scenario uses: an override scenario carries its
+    deployment pattern, a climate one carries its temperature pattern, the
+    climate parameters, and the residence-time table they name. import_config
+    restores the packaged defaults before applying a config, so whichever files
+    a config leaves out come back as the packaged examples rather than as gaps.
+    """
     root = Path("/ciim_inputs")
     scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
     method_name = scenario["deployment_method"]
-    pattern_name = scenario["deployment_pattern"]
+
+    def named_file(directory: str, name: str) -> dict:
+        return {"name": name, "csv": (root / directory / name).read_text(encoding="utf-8")}
+
     config = {
         "scenario": scenario,
         "deployment_method": {
@@ -366,16 +376,29 @@ def export_config() -> str:
         },
         "material": yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8")),
         "finance": yaml.safe_load((root / "finance.yaml").read_text(encoding="utf-8")),
-        "deployment_pattern": {
-            "name": pattern_name,
-            "csv": (root / "scenario" / "deployment_patterns" / pattern_name).read_text(encoding="utf-8"),
-        },
     }
+
+    if scenario.get("deployment_pattern") is not None:
+        config["deployment_pattern"] = named_file(
+            "scenario/deployment_patterns", scenario["deployment_pattern"])
+    else:
+        climate = yaml.safe_load((root / "climate.yaml").read_text(encoding="utf-8"))
+        config["temperature_pattern"] = named_file(
+            "scenario/temperature_patterns", scenario["temperature_pattern"])
+        config["climate"] = climate
+        config["stratospheric_lifetimes"] = named_file(
+            "stratospheric_lifetimes", climate["stratospheric_lifetimes"])
+
     return yaml.safe_dump(config, sort_keys=False)
 
 
 def import_config(text: str) -> None:
-    """Replace the working inputs with a config document."""
+    """Replace the working inputs with a config document.
+
+    The packaged tree is restored first, so a config that omits the other
+    mode's files leaves the packaged examples in place rather than holes --
+    switching mode after an import then still gives a working default.
+    """
     config = yaml.safe_load(text)
     root = Path("/ciim_inputs")
     materialize_inputs(str(root))          # clean, complete tree to overwrite
@@ -387,12 +410,20 @@ def import_config(text: str) -> None:
         yaml.safe_dump(config["material"], sort_keys=False), encoding="utf-8")
     (root / "finance.yaml").write_text(
         yaml.safe_dump(config["finance"], sort_keys=False), encoding="utf-8")
+    if "climate" in config:
+        (root / "climate.yaml").write_text(
+            yaml.safe_dump(config["climate"], sort_keys=False), encoding="utf-8")
 
-    pattern = config["deployment_pattern"]
-    (root / "scenario" / "deployment_patterns" / pattern["name"]).write_text(
-        pattern["csv"], encoding="utf-8")
+    for key, directory in [("deployment_pattern", "scenario/deployment_patterns"),
+                           ("temperature_pattern", "scenario/temperature_patterns"),
+                           ("stratospheric_lifetimes", "stratospheric_lifetimes")]:
+        if key in config:
+            (root / directory / config[key]["name"]).write_text(
+                config[key]["csv"], encoding="utf-8")
+
     (root / "scenario" / "scenario.yaml").write_text(
         yaml.safe_dump(config["scenario"], sort_keys=False), encoding="utf-8")
+
 
 def write_pattern(csv_text: str, filename: str) -> str:
     """Save an uploaded pattern CSV into the working inputs dir; return its filename."""
