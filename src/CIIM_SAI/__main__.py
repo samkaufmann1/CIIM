@@ -69,6 +69,16 @@ def main() -> None:
     results.to_csv(path, index=False)
     print(f"\nfull table written to {path}")
 
+    # In climate mode the pattern was derived rather than read, so write it out
+    # too. It is the one artifact that makes the derivation inspectable, and it
+    # is itself a valid deployment pattern: point deployment_pattern at it and
+    # the run reproduces exactly.
+    if inputs.temperature is not None:
+        path = OUTPUT_DIR / "derived_deployment_pattern.csv"
+        (inputs.pattern / 1.0e9).to_csv(path)
+        print(f"derived deployment pattern written to {path}")
+
+
 
 if __name__ == "__main__":
     main()

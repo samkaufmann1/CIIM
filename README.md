@@ -23,13 +23,26 @@ All inputs are files packaged under `src/CIIM_SAI/inputs/`:
 
 | File | Contents |
 |---|---|
-| `scenario/scenario.yaml` | Which deployment method, material, and deployment pattern to run; injection altitude; optional parameter sweeps |
+| `scenario/scenario.yaml` | Which deployment method and material to run; injection altitude; either a deployment pattern or a temperature target with an injection latitude; optional parameter sweeps |
 | `scenario/deployment_patterns/*.csv` | Deployed mass (Tg/year) by year and latitude |
+| `scenario/temperature_patterns/*.csv` | Warming expected without SAI, and warming wanted (°C) by year |
 | `deployment_methods/*.yaml` | One file per deployment method: development (NRE), unit cost, lifetime, capacity, lead time, labor, consumables |
-| `material.yaml` | Materials: cost per kg, molar mass, sources |
-| `finance.yaml` | Currency conventions |
+| `material.yaml` | Materials: cost per kg, and for a deployed material its radiative forcing per Tg per year |
+| `climate.yaml` | Temperature response to forcing by injection latitude; which residence-time table to use |
+| `stratospheric_lifetimes/*.csv` | Aerosol residence time (months) by injection altitude and latitude |
 
+| `finance.yaml` | Currency conventions |
 All files indicate which variables, if any, can be used as part of a parameter sweep.
+
+A scenario says how much is deployed in one of two ways. It can name a
+deployment pattern directly — masses by year and latitude. Or it can name a
+temperature target: the warming expected without SAI and the warming wanted,
+from which `climatology.py` derives the mass needed. It does that by converting
+the cooling required into a radiative forcing using a sensitivity that depends
+on injection latitude, then into a mass using the deployed material's forcing
+per Tg per year, then adjusting for how long aerosol survives at that altitude
+and latitude. The result is a deployment pattern in the same format as a
+hand-written one, and the rest of the model cannot tell the difference.
 
 From the deployment pattern, the model determines how many units must be in
 service each year, then schedules orders, deliveries, and retirements around
@@ -57,9 +70,15 @@ choices:
   variants, no learning curve, no mid-life refits.
 - **No early retirement.** A unit serves exactly its lifetime, even if demand
   has fallen and it is idle.
-- **Latitude is carried but unused.** Deployment patterns are resolved by
-  latitude, but the model sums across latitudes and costs the total; nothing
-  yet depends on where material goes.
+- **Latitude affects the derivation, not the costing.** In climate mode the
+  injection latitude sets both the temperature response to forcing and the
+  aerosol's residence time, so it changes how much material is needed. Once the
+  mass is known the model sums across latitudes and costs the total; nothing
+  about building or running the fleet depends on where the material goes.
+- **The climate representation is deliberately crude.** Response is linear in
+  injection rate, cooling is instantaneous with no ocean lag, and only one
+  injection latitude is modeled at a time. `climatology.py`'s docstring states
+  these in full; together they bound what a cost per degree of cooling can mean.
 
 ## Running it
 
@@ -71,7 +90,11 @@ python -m CIIM_SAI
 ```
 
 This runs the packaged scenario, prints a summary, and writes the full table to
-`outputs/deployment_schedule.csv`. From a notebook or your own code, skip the
+`outputs/deployment_schedule.csv`. If the scenario names a temperature target
+rather than a deployment pattern, the pattern derived from it is written to
+`outputs/derived_deployment_pattern.csv` as well — that file is itself a valid
+deployment pattern, so pointing `deployment_pattern` at it reproduces the run
+exactly. From a notebook or your own code, skip the
 command line and call the model directly:
 
 ```python
@@ -123,6 +146,7 @@ src/CIIM_SAI/          the model
   load_inputs.py       reads and validates all input files; the only module
                        that touches the filesystem
   run.py               expands sweeps, runs cases, stacks results
+  climatology.py       derives a deployment pattern from a temperature target
   __main__.py          command-line entry point; demonstration only
   deployment_methods/  one deploy_<name>.py per method: its input schema
                        and its cost/schedule calculation
