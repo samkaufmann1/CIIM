@@ -34,7 +34,7 @@ class Frozen(BaseModel):
 class Forcing(Frozen):
     """The radiative effect of a deployed material, in material.yaml."""
 
-    per_mass: float = Field(gt=0, description="W/m2 per kg/year injected")
+    per_Tg_per_year: float = Field(gt=0, description="W/m2 per Tg/year injected")
     reference_lifetime_months: float = Field(
         gt=0, description="Residence time per_mass was calibrated at; only its ratio is used"
     )
@@ -132,6 +132,25 @@ class Scenario(Frozen):
         return self
 
 
+class Climate(Frozen):
+    """climate.yaml: the simplified climate representation."""
+
+    cooling_per_forcing: dict[int, float] = Field(
+        description="degC of global mean cooling per W/m2 of forcing, by injection latitude"
+    )
+    source: str
+    stratospheric_lifetimes: str = Field(description="CSV in stratospheric_lifetimes/")
+
+    @model_validator(mode="after")
+    def latitudes_are_a_grid(self) -> Climate:
+        if not self.cooling_per_forcing:
+            raise ValueError("cooling_per_forcing needs at least one latitude")
+        bad = [lat for lat in self.cooling_per_forcing if not 0 <= lat <= 90]
+        if bad:
+            raise ValueError(f"cooling_per_forcing latitudes must be 0-90 degrees; got {bad}")
+        return self
+
+
 @dataclass(frozen=True)
 class Inputs:
     """Everything one model run needs, as a single value."""
@@ -143,6 +162,12 @@ class Inputs:
     method: dict[str, Any]       # raw method YAML; the method module validates it
     inputs_dir: Path             # where this set was loaded from
 
+    # Climate mode only; all three are None when a deployment_pattern overrides
+    # the climatology module.
+    cooling_per_forcing: dict[int, float] | None = None   # degC per W/m2, by latitude
+    lifetimes: pd.DataFrame | None = None                 # months, (season, altitude) x latitude
+    temperature: pd.DataFrame | None = None               # degC anomalies, indexed by year
+ 
     def __post_init__(self) -> None:
         if self.scenario.deployed_material not in self.materials:
             raise ValueError(
@@ -150,6 +175,32 @@ class Inputs:
                 f"material.yaml. Known materials: {', '.join(sorted(self.materials))}"
             )
 
+        # The scenario's either/or has to hold for the data too, or a climate-mode
+        # run could reach climatology with nothing to compute from.
+        loaded = [f is not None for f in
+                  (self.cooling_per_forcing, self.lifetimes, self.temperature)]
+        if self.scenario.temperature_pattern is None and any(loaded):
+            raise ValueError("climate inputs are not used with a deployment_pattern")
+        if self.scenario.temperature_pattern is not None and not all(loaded):
+            raise ValueError(
+                "temperature_pattern needs cooling_per_forcing, lifetimes and temperature"
+            )
+
+        if self.scenario.temperature_pattern is None:
+            return   # nothing below applies to an override run
+
+        # Both are re-checked for every case in a sweep: with_overrides rebuilds
+        # an Inputs per case, and dataclasses.replace re-runs __post_init__.
+        if self.scenario.latitude not in self.cooling_per_forcing:
+            raise ValueError(
+                f"cannot inject at {self.scenario.latitude} degrees: climate.yaml gives "
+                f"cooling_per_forcing only at {sorted(self.cooling_per_forcing)}"
+            )
+        if self.materials[self.scenario.deployed_material].forcing is None:
+            raise ValueError(
+                f"deployed_material {self.scenario.deployed_material!r} has no forcing "
+                f"block in material.yaml, so its deployed mass cannot be derived"
+            )
 
 def read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -186,6 +237,17 @@ def check_years(df: pd.DataFrame, path: Path) -> None:
         )
 
 
+def check_pattern(df: pd.DataFrame, source: str | Path) -> pd.DataFrame:
+    """Validate a deployment pattern in Tg/year and return it in kg/year.
+
+    Both modes end here -- a hand-written CSV and the frame climatology derives
+    -- so the two cannot drift apart on either the checks or the unit.
+    """
+    check_years(df, source)
+    if (df < 0).any().any():
+        raise ValueError(f"{source} has negative injection rates")
+    return df * 1.0e9   # patterns are in Tg/year; the model works in kg
+
 def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
     """Read a deployment pattern CSV and convert it to kg per year."""
     path = inputs_dir / "scenario" / "deployment_patterns" / filename
@@ -198,11 +260,7 @@ def load_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd.DataFrame:
     df.index.name = "year"
     df.columns.name = "latitude"
 
-    check_years(df, path)
-    if (df < 0).any().any():
-        raise ValueError(f"{path} has negative injection rates")
-
-    return df * 1.0e9   # pattern CSVs are Tg/year; the model works in kg
+    return check_pattern(df, path)
 
 
 TEMPERATURE_COLUMNS = ["temperature_without_sai", "temperature_target"]
@@ -243,6 +301,54 @@ def load_temperature_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd
 
     return df
 
+def load_lifetimes(
+    filename: str, latitudes: list[int], inputs_dir: Path = INPUTS_DIR
+) -> pd.DataFrame:
+    """Read a stratospheric residence time table, in months.
+
+    Indexed by (season, altitude) with latitude columns, so climatology can take
+    one season or average across them. Months are kept: only the ratio to a
+    material's forcing.reference_lifetime_months is used, and the units cancel.
+    """
+    path = inputs_dir / "stratospheric_lifetimes" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"stratospheric lifetime table not found: {path}")
+
+    df = pd.read_csv(path, index_col=["season", "altitude"])
+    df.columns = df.columns.astype(int)     # read_csv gives '0', '15', ...; the grid is ints
+    df.columns.name = "latitude"
+
+    if list(df.columns) != sorted(latitudes):
+        raise ValueError(
+            f"{path} latitude columns {list(df.columns)} do not match "
+            f"climate.yaml's cooling_per_forcing latitudes {sorted(latitudes)}"
+        )
+
+    seasons = df.index.get_level_values("season").unique()
+    if len(seasons) != 2:
+        raise ValueError(f"{path} needs exactly two seasons; got {list(seasons)}")
+    grids = [df.loc[s] for s in seasons]
+    if not grids[0].index.equals(grids[1].index):
+        raise ValueError(f"{path} seasons cover different altitudes")
+    if (df.dropna() <= 0).any().any():
+        raise ValueError(f"{path} has residence times at or below zero")
+
+    # A blank means the altitude is below the tropopause at that latitude, so
+    # there is no stratospheric value to record. Climatology averages the two
+    # seasons, and pandas skips NaN when it does, so a cell blank in one season
+    # and filled in the other would quietly pass off one season as the annual
+    # mean instead of failing.
+    if not grids[0].isna().equals(grids[1].isna()):
+        asymmetric = [(int(a), int(lat))
+                      for a in grids[0].index for lat in df.columns
+                      if grids[0].isna().loc[a, lat] != grids[1].isna().loc[a, lat]]
+        raise ValueError(
+            f"{path} is blank in one season but not the other at "
+            f"(altitude, latitude) {asymmetric}"
+        )
+
+    return df
+
 
 def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     """Load and validate the full input set from disk.
@@ -274,7 +380,12 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     if scenario.deployment_pattern is not None:
         pattern = load_pattern(scenario.deployment_pattern, inputs_dir)
     else:
-        load_temperature_pattern(scenario.temperature_pattern, inputs_dir)
+        climate = Climate(**read_yaml(inputs_dir / "climate.yaml"))
+        cooling_per_forcing = climate.cooling_per_forcing
+        lifetimes = load_lifetimes(
+            climate.stratospheric_lifetimes, list(cooling_per_forcing), inputs_dir
+        )
+        temperature = load_temperature_pattern(scenario.temperature_pattern, inputs_dir)
         raise NotImplementedError(
             "temperature_pattern needs the climatology module, which does not exist yet"
         )

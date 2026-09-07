@@ -22,8 +22,8 @@ deployment_pattern: example_deployment_pattern.csv
 # the model simulates a scenario space with a number of dimensions equal to the number of parameters being swept.
 sweep:
   scenario.altitude:
-    start: 15000
-    stop: 30000
+    start: 17000
+    stop: 25000
     step: 1000
 
 
