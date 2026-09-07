@@ -1,8 +1,12 @@
-"""Reading and validating CIIM input files.
+"""Reading, validating and completing CIIM input files.
 
-Everything downstream receives
-validated, immutable objects, which is what lets the model run from the command
-line, from a notebook, or from a GUI.
+Everything downstream receives validated, immutable objects, which is what lets
+the model run from the command line, from a notebook, or from a GUI.
+
+A scenario names its deployed masses either directly, in a deployment pattern
+CSV, or indirectly, as a temperature target for the climatology module to turn
+into masses. Both routes end at check_pattern before reaching Inputs.pattern,
+so neither mode can drift from the other.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from typing import Any
 
 import pandas as pd
 import yaml
+
+from CIIM_SAI import climatology
 
 # default input directory, defined relative to current file location
 INPUTS_DIR = Path(__file__).resolve().parent / "inputs"
@@ -36,7 +42,7 @@ class Forcing(Frozen):
 
     per_Tg_per_year: float = Field(gt=0, description="W/m2 per Tg/year injected")
     reference_lifetime_months: float = Field(
-        gt=0, description="Residence time per_mass was calibrated at; only its ratio is used"
+        gt=0, description="Residence time per_Tg_per_year was calibrated at; only its ratio is used"
     )
     source: str
 
@@ -175,8 +181,11 @@ class Inputs:
                 f"material.yaml. Known materials: {', '.join(sorted(self.materials))}"
             )
 
-        # The scenario's either/or has to hold for the data too, or a climate-mode
-        # run could reach climatology with nothing to compute from.
+        # The scenario's either/or has to hold for the data too. By the time this
+        # runs the pattern has already been derived, so this does not guard
+        # climatology; it guards what reads these fields later -- with_overrides,
+        # which re-derives from them for every case in a sweep, and the front
+        # ends, which will divide total cost by the cooling schedule.
         loaded = [f is not None for f in
                   (self.cooling_per_forcing, self.lifetimes, self.temperature)]
         if self.scenario.temperature_pattern is None and any(loaded):
@@ -186,21 +195,7 @@ class Inputs:
                 "temperature_pattern needs cooling_per_forcing, lifetimes and temperature"
             )
 
-        if self.scenario.temperature_pattern is None:
-            return   # nothing below applies to an override run
 
-        # Both are re-checked for every case in a sweep: with_overrides rebuilds
-        # an Inputs per case, and dataclasses.replace re-runs __post_init__.
-        if self.scenario.latitude not in self.cooling_per_forcing:
-            raise ValueError(
-                f"cannot inject at {self.scenario.latitude} degrees: climate.yaml gives "
-                f"cooling_per_forcing only at {sorted(self.cooling_per_forcing)}"
-            )
-        if self.materials[self.scenario.deployed_material].forcing is None:
-            raise ValueError(
-                f"deployed_material {self.scenario.deployed_material!r} has no forcing "
-                f"block in material.yaml, so its deployed mass cannot be derived"
-            )
 
 def read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -349,6 +344,44 @@ def load_lifetimes(
 
     return df
 
+def derive_pattern(
+    scenario: Scenario,
+    materials: dict[str, Material],
+    cooling_per_forcing: dict[int, float],
+    lifetimes: pd.DataFrame,
+    temperature: pd.DataFrame,
+) -> pd.DataFrame:
+    """The deployment pattern climatology derives for a climate-mode scenario.
+
+    Called from load_inputs and again from with_overrides for each case in a
+    sweep, so the two cannot derive different patterns from the same inputs.
+    The two checks are here rather than in Inputs.__post_init__ because they
+    are preconditions of the derivation, which runs first: without them the
+    failures would be an AttributeError on None and a bare KeyError.
+    """
+    forcing = materials[scenario.deployed_material].forcing
+    if forcing is None:
+        raise ValueError(
+            f"deployed_material {scenario.deployed_material!r} has no forcing block in "
+            f"material.yaml, so its deployed mass cannot be derived from a temperature"
+        )
+    if scenario.latitude not in cooling_per_forcing:
+        raise ValueError(
+            f"cannot inject at {scenario.latitude} degrees: climate.yaml gives "
+            f"cooling_per_forcing only at {sorted(cooling_per_forcing)}"
+        )
+
+    pattern = climatology.generate_deployment_pattern(
+        temperature,
+        scenario.altitude,
+        scenario.latitude,
+        cooling_per_forcing,
+        lifetimes,
+        forcing.per_Tg_per_year,
+        forcing.reference_lifetime_months,
+    )
+    return check_pattern(pattern, "the pattern derived by the climatology module")
+
 
 def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     """Load and validate the full input set from disk.
@@ -357,6 +390,10 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     sweep may vary. Those lists are removed here, before the schemas see the
     data, and checked against the scenario's sweep block — this is the only
     place every input file is in scope at once.
+
+    The deployment pattern comes either from the CSV the scenario names, or,
+    when it names a temperature pattern instead, from climatology by way of
+    derive_pattern. The climate files are read only in that second case.
     """
     scenario_data = read_yaml(inputs_dir / "scenario" / "scenario.yaml")
     sweepable = pop_sweepable("scenario", scenario_data)
@@ -377,6 +414,9 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
                 f"Sweepable: {', '.join(sweepable)}"
             )
 
+    materials = {k: Material(**v) for k, v in material_data.items()}
+    cooling_per_forcing = lifetimes = temperature = None
+
     if scenario.deployment_pattern is not None:
         pattern = load_pattern(scenario.deployment_pattern, inputs_dir)
     else:
@@ -386,18 +426,20 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
             climate.stratospheric_lifetimes, list(cooling_per_forcing), inputs_dir
         )
         temperature = load_temperature_pattern(scenario.temperature_pattern, inputs_dir)
-        raise NotImplementedError(
-            "temperature_pattern needs the climatology module, which does not exist yet"
+        pattern = derive_pattern(
+            scenario, materials, cooling_per_forcing, lifetimes, temperature
         )
-
 
     return Inputs(
         scenario=scenario,
-        materials={k: Material(**v) for k, v in material_data.items()},
+        materials=materials,
         currency_year=read_yaml(inputs_dir / "finance.yaml")["currency_year"],
         pattern=pattern,
         method=method_data,
         inputs_dir=inputs_dir,
+        cooling_per_forcing=cooling_per_forcing,
+        lifetimes=lifetimes,
+        temperature=temperature,
     )
 
 
@@ -405,18 +447,18 @@ def set_at(data: dict[str, Any], path: str, value: Any) -> None:
     """Set the value at dotted `path` inside a nested dict, in place.
 
     `path` is a chain of keys joined by dots -- the same spelling the sweepable
-    lists use. Setting "forcing.per_mass" to 2e-10 in
+    lists use. Setting "forcing.per_Tg_per_year" to 2e-10 in
 
-        {"cost": 0.2, "forcing": {"per_mass": 1e-10, "source": "..."}}
+        {"cost": 0.2, "forcing": {"per_Tg_per_year": 1e-10, "source": "..."}}
 
-    reaches into data["forcing"] and sets its "per_mass" key, leaving "cost"
+    reaches into data["forcing"] and sets its "per_Tg_per_year" key, leaving "cost"
     and "source" untouched.
 
     Nothing is copied first: both callers already hold a dict nobody else has
     -- one from model_dump(), one freshly re-read from file -- so writing into
     it cannot affect anything outside.
     """
-    keys = path.split(".")        # "forcing.per_mass" -> ["forcing", "per_mass"]
+    keys = path.split(".")        # "forcing.per_Tg_per_year" -> ["forcing", "per_Tg_per_year"]
 
     # Step down one key at a time until `node` is the dict holding the last
     # key. For a one-level path like "cost" this loop runs zero times and
@@ -439,6 +481,9 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
     values go back through their constructors rather than being assigned, so a
     swept value gets the same checks a hand-written one would; method values
     land in a raw dict and are checked later by the method module that owns it.
+
+    The pattern comes along too: in climate mode it is re-derived for this case,
+    since altitude, latitude and the material's forcing block are all sweepable.
     """
     by_root: dict[str, dict[str, Any]] = {"scenario": {}, "material": {}, "method": {}}
     for path, value in overrides.items():
@@ -452,7 +497,7 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
     scenario = Scenario(**{**base.scenario.model_dump(), **by_root["scenario"]})
 
     # A material override names a path inside one material, like
-    # "SO2.forcing.per_mass": the first key picks the material and the rest is
+    # "SO2.forcing.per_Tg_per_year": the first key picks the material and the rest is
     # a path within it. model_dump() hands back a plain nested dict to edit,
     # and rebuilding the Material from it re-runs the schema's validation.
     materials = base.materials
@@ -474,10 +519,17 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
     for path, value in by_root["method"].items():
         set_at(method, path, value)
 
-    pattern = base.pattern
-    if (scenario.deployment_pattern is not None
-        and scenario.deployment_pattern != base.scenario.deployment_pattern):
+    # In climate mode the pattern is derived, so it is redone unconditionally:
+    # altitude, latitude and the material's forcing block are all sweepable, and
+    # a list of what to watch for is a list to get wrong. It is a groupby and an
+    # interpolation over a few dozen rows.
+    if scenario.temperature_pattern is not None:
+        pattern = derive_pattern(scenario, materials, base.cooling_per_forcing,
+                                 base.lifetimes, base.temperature)
+    elif scenario.deployment_pattern != base.scenario.deployment_pattern:
         pattern = load_pattern(scenario.deployment_pattern, base.inputs_dir)
+    else:
+        pattern = base.pattern
 
     return replace(base, scenario=scenario, materials=materials,
                    method=method, pattern=pattern)
@@ -491,7 +543,8 @@ def pop_sweepable(namespace: str, data: dict[str, Any]) -> list[str]:
     Paths are relative to their own file going in and namespaced coming out,
     so `unit.cost` in teleporter.yaml becomes `method.unit.cost`.
 
-    Called by load_inputs to check the sweep block, and by docs/app.py to fill
+    Called by load_inputs to check the sweep block, by with_overrides to strip
+    the key from a method file it has just re-read, and by docs/app.py to fill
     the GUI's parameter list.
     """
     return [f"{namespace}.{name}" for name in data.pop("sweepable", [])]

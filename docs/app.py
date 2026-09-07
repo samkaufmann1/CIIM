@@ -50,12 +50,17 @@ def run_model(inputs_dir: str | None = None) -> str:
     sweep_params = list(scenario.sweep)
     currency_year = inputs.currency_year
 
-    lines = [
-        f"method   : {scenario.deployment_method}",
-        f"pattern  : {scenario.deployment_pattern} ({scenario.deployed_material})",
+    lines = [f"method   : {scenario.deployment_method}"]
+    if scenario.deployment_pattern is not None:
+        lines.append(f"pattern  : {scenario.deployment_pattern} ({scenario.deployed_material})")
+    else:
+        lines.append(f"target   : {scenario.temperature_pattern} ({scenario.deployed_material})")
+        lines.append(f"latitude : {scenario.latitude} degrees, north and south")
+    lines += [
         f"altitude : {scenario.altitude:,.0f} m",
         f"currency : real {inputs.currency_year} USD",
     ]
+    
     for name, sweep in scenario.sweep.items():
         lines.append(f"sweep    : {name} from {sweep.start:g} to {sweep.stop:g} step {sweep.step:g}")
 

@@ -31,7 +31,11 @@ def main() -> None:
     scenario = inputs.scenario
 
     print(f"method   : {scenario.deployment_method}")
-    print(f"pattern  : {scenario.deployment_pattern} ({scenario.deployed_material})")
+    if scenario.deployment_pattern is not None:
+        print(f"pattern  : {scenario.deployment_pattern} ({scenario.deployed_material})")
+    else:
+        print(f"target   : {scenario.temperature_pattern} ({scenario.deployed_material})")
+        print(f"latitude : {scenario.latitude} degrees, north and south")
     print(f"altitude : {scenario.altitude:,.0f} m")
     print(f"currency : real {inputs.currency_year} USD")
 
