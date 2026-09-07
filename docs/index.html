@@ -18,11 +18,11 @@
 * and the model's own loader validates them. Bad input surfaces as the
 * loader's error message, on the status line and in the output area.
 *
-* State that outlives a call: `pyodide` (the interpreter), `patternFile` (the
-* active deployment pattern's filename, which the forms round-trip but only the
-* upload handler changes), and `sweepable` (the parameters the current input
-* files allow sweeping, refreshed whenever the scenario form is repopulated).
-*
+* State that outlives a call: `pyodide` (the interpreter), `patternFile` and
+* `temperatureFile` (the active pattern filenames for each mode, which the
+* forms round-trip but only the upload handlers change), and `sweepable` (the
+* parameters the current input files allow sweeping, refreshed whenever the
+* scenario form is repopulated).
 *
 * The loading overlay, spinner and quips are cosmetic, and freeze while
 * Python runs — everything here is on the browser's single main thread.
@@ -112,11 +112,30 @@
     <label>altitude (m)
       <input id="f-altitude" type="number" min="1" step="any">
     </label>
-    <label>deployment pattern (Tg/year, year × latitude)
-      <input id="f-pattern" type="file" accept=".csv" disabled>
-    </label>
-    <button id="download-pattern" type="button" disabled>Download current pattern CSV</button>
-    <span id="pattern-name"></span>
+    <fieldset id="mode-block">
+      <legend>deployed mass</legend>
+      <label><input type="radio" name="mode" value="pattern" checked> named directly</label>
+      <label><input type="radio" name="mode" value="temperature"> derived from a temperature target</label>
+
+      <div id="pattern-group">
+        <label>deployment pattern (Tg/year, year × latitude)
+          <input id="f-pattern" type="file" accept=".csv" disabled>
+        </label>
+        <button id="download-pattern" type="button" disabled>Download current pattern CSV</button>
+        <span id="pattern-name"></span>
+      </div>
+
+      <div id="temperature-group" hidden>
+        <label>injection latitude (degrees, north and south)
+          <select id="f-latitude"></select>
+        </label>
+        <label>temperature pattern (degC by year: warming without SAI, and wanted)
+          <input id="f-temperature" type="file" accept=".csv" disabled>
+        </label>
+        <button id="download-temperature" type="button" disabled>Download current temperature CSV</button>
+        <span id="temperature-name"></span>
+      </div>
+    </fieldset>
     <div id="sweep-block">
       <strong>parameter sweep</strong>
       <div id="sweep-rows"></div>
@@ -142,8 +161,10 @@
 
 
 
+  <p id="cost-headline" hidden></p>
   <pre id="output"></pre>
   <button id="download-csv" disabled>Download results CSV</button>
+  <button id="download-derived" type="button" hidden>Download derived pattern CSV</button>
   <div id="chart-costs"></div>
   <div id="chart-components"></div>
 
@@ -213,6 +234,7 @@
     }
 
     let patternFile = null
+    let temperatureFile = null
     let sweepable = [];          // filled by populateScenarioForm
     
     function sweepRows() {
@@ -280,8 +302,22 @@
       fill("f-material", init.materials, init.scenario.deployed_material);
       document.getElementById("f-altitude").value = init.scenario.altitude;
 
-      patternFile = init.scenario.deployment_pattern;   // carried until the CSV step
+      // Both groups are filled whichever one is showing: from the file where it
+      // has a value, from the first available otherwise. The hidden group then
+      // always holds something valid, so switching mode is write-then-repopulate
+      // with no separate seeding step whose order could be got wrong.
+      patternFile = init.scenario.deployment_pattern || init.patterns[0];
       document.getElementById("pattern-name").textContent = patternFile;
+
+      temperatureFile = init.scenario.temperature_pattern || init.temperature_patterns[0];
+      document.getElementById("temperature-name").textContent = temperatureFile;
+      fill("f-latitude", init.latitudes, init.scenario.latitude ?? init.latitudes[0]);
+
+      const climateMode = init.scenario.temperature_pattern != null;
+      document.querySelector(
+        `input[name="mode"][value="${climateMode ? "temperature" : "pattern"}"]`).checked = true;
+      document.getElementById("pattern-group").hidden = climateMode;
+      document.getElementById("temperature-group").hidden = !climateMode;
 
       // One row per parameter the saved sweep names. The sweep is stored in
       // scenario.yaml, but a parameter may be declared in the deployment
@@ -301,10 +337,18 @@
       const num = (id) => Number(document.getElementById(id).value);
       const scenario = {
         deployment_method: document.getElementById("f-method").value,
-        deployment_pattern: patternFile,
         deployed_material: document.getElementById("f-material").value,
         altitude: num("f-altitude"),
       };
+
+      // Exactly one of these, and latitude only alongside the second: any other
+      // combination is rejected by the scenario schema.
+      if (document.querySelector('input[name="mode"]:checked').value === "pattern") {
+        scenario.deployment_pattern = patternFile;
+      } else {
+        scenario.temperature_pattern = temperatureFile;
+        scenario.latitude = num("f-latitude");
+      }
 
       // Every row becomes one entry; no rows means no sweep key at all.
       const sweep = {};
@@ -387,7 +431,14 @@
         document.getElementById("output").textContent = summary;
         renderChart("chart-costs", pyodide.runPython("cost_chart()"));
         renderChart("chart-components", pyodide.runPython("component_chart()"));
-        document.getElementById("download-csv").disabled = false;
+                document.getElementById("download-csv").disabled = false;
+
+        const headline = document.getElementById("cost-headline");
+        headline.textContent = pyodide.runPython("cost_per_degree_year()");
+        headline.hidden = !headline.textContent;
+        document.getElementById("download-derived").hidden =
+          !pyodide.runPython("derived_pattern_csv()");
+        
         status.textContent = "Model run successful";
         status.className = "ok";
       } catch (err) {
@@ -420,6 +471,8 @@
         document.getElementById("run-model").disabled = false;
         document.getElementById("f-pattern").disabled = false;
         document.getElementById("download-pattern").disabled = false;
+        document.getElementById("f-temperature").disabled = false;
+        document.getElementById("download-temperature").disabled = false;
         document.getElementById("reset-inputs").disabled = false;
         document.getElementById("export-config").disabled = false;
         document.getElementById("import-config").disabled = false;
@@ -445,6 +498,34 @@
       document.getElementById("pattern-name").textContent = patternFile;
     });
 
+    document.getElementById("f-temperature").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      temperatureFile = pyodide.runPython(
+        `write_temperature_pattern(${JSON.stringify(text)}, ${JSON.stringify(file.name)})`);
+      document.getElementById("temperature-name").textContent = temperatureFile;
+    });
+
+    document.getElementById("download-temperature").addEventListener("click", () => {
+      downloadText(temperatureFile,
+                   pyodide.runPython(`temperature_csv(${JSON.stringify(temperatureFile)})`));
+    });
+
+    document.getElementById("download-derived").addEventListener("click", () => {
+      downloadText("derived_deployment_pattern.csv",
+                   pyodide.runPython("derived_pattern_csv()"));
+    });
+
+    // The two modes offer different sweepable parameters, so the form is
+    // repopulated. The other input forms do not depend on the mode.
+    for (const radio of document.querySelectorAll('input[name="mode"]')) {
+      radio.addEventListener("change", () => {
+        pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
+        populateScenarioForm();
+      });
+    }
+
     document.getElementById("download-pattern").addEventListener("click", () => {
       downloadText(patternFile, pyodide.runPython(`pattern_csv(${JSON.stringify(patternFile)})`));
     });
@@ -461,7 +542,8 @@
 
     document.getElementById("reset-inputs").addEventListener("click", async () => {
       pyodide.runPython('materialize_inputs("/ciim_inputs")');
-      document.getElementById("f-pattern").value = "";
+            document.getElementById("f-pattern").value = "";
+      document.getElementById("f-temperature").value = "";
       populateScenarioForm();
       renderInputsForms();
       await runFromInputs();
