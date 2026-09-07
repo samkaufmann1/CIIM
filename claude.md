@@ -12,7 +12,7 @@ readable and auditable by one person, not a production system.
 
 - **Functions are verbs, variables are nouns** (`build_fleet` the function,
   `fleet` the value). Not style — same-name collisions have bitten this codebase.
-- **SI base units everywhere**: metres, kilograms, USD. The single exception is
+- **SI base units everywhere**: meters, kilograms, USD. The single exception is
   time, which is in years. Deployment pattern CSVs are in Tg/year purely as a
   file-format convention and are converted to kg at load.
 - **YAML exponents need a signed exponent**: `1.0e+9` parses as a float, `1e9`

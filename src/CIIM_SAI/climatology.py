@@ -5,7 +5,7 @@ and leave the masses to be derived. This module does the second. A scenario
 with a deployment_pattern skips it entirely.
 
 For each year the temperature pattern gives the warming expected without SAI
-and the warming wanted. The difference is the cooling the programme has to
+and the warming wanted. The difference is the cooling the program has to
 deliver, clamped at zero: a year already below its target needs no deployment.
 
 Turning that cooling into a mass takes three numbers.
@@ -71,7 +71,7 @@ import pandas as pd
 
 def average_seasons(lifetimes: pd.DataFrame) -> pd.DataFrame:
     """Average two injection seasons into one annual table.
-    This is done to the Toohey (2025) data as a crude stand-in for a programme that deploys all year round. It is a named
+    This is done to the Toohey (2025) data as a crude stand-in for a program that deploys all year round. It is a named
     function rather than a line inside find_lifetime because it is the whole of
     the seasonal simplification: a seasonal deployment strategy would replace
     this and nothing else.
@@ -109,11 +109,11 @@ def find_lifetime(annual: pd.DataFrame, altitude: float, latitude: int) -> float
 
 
 def determine_cooling(temperature: pd.DataFrame) -> pd.Series:
-    """Cooling the programme must deliver each year, in degC.
+    """Cooling the program must deliver each year, in degC.
 
     Clamped at zero rather than rejected: a year whose target sits above the
     warming expected without SAI needs no deployment, which is the ordinary way
-    a programme begins. load_inputs rejects a pattern where no year needs any cooling.
+    a program begins. load_inputs rejects a pattern where no year needs any cooling.
     """
     cooling = temperature["temperature_without_sai"] - temperature["temperature_target"]
     return cooling.clip(lower=0)
@@ -158,7 +158,7 @@ def spread_across_latitudes(
 
 def generate_deployment_pattern(
     temperature: pd.DataFrame,              # year -> temperature_without_sai, temperature_target
-    altitude: float,                        # metres
+    altitude: float,                        # meters
     latitude: int,                          # degrees, on the lifetime table's grid
     cooling_per_forcing: dict[int, float],  # degC per W/m2, by injection latitude
     lifetimes: pd.DataFrame,                # months, (season, altitude) x latitude

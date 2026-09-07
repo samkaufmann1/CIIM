@@ -105,7 +105,7 @@ def cost_chart() -> str:
     """All cases: total cost vs year, colored by the swept parameter.
 
     Returns "" when more than one parameter is swept: the lines would still be
-    correct, but there is nothing meaningful to colour them by, and a colourbar
+    correct, but there is nothing meaningful to color them by, and a colorbar
     of case numbers explains nothing.
     """
     if len(sweep_params) > 1:

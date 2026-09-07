@@ -30,7 +30,7 @@ class LaborRole(Frozen):
 
 class Consumption(Frozen):
     kg_per_year_per_altitude: float = Field(
-        ge=0, description="kg per teleporter per year, per metre of altitude"
+        ge=0, description="kg per teleporter per year, per meter of altitude"
     )
 
 
@@ -62,7 +62,7 @@ class Teleporter(Frozen):
 def determine_units_required(demand: pd.Series, capacity: float) -> pd.Series:
     """Teleporters that must be in service each year to deliver `demand`."""
     # Rounded before the ceiling: 2.0000000000000004 units of demand is a float
-    # artefact, and ceiling it would buy a whole spurious teleporter.
+    # artifact, and ceiling it would buy a whole spurious teleporter.
     return np.ceil((demand / capacity).round(9)).astype(int)
 
 

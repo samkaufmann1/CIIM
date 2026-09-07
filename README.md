@@ -39,7 +39,7 @@ operating costs (labor, consumables, and the deployed material itself) for the
 active fleet. A scenario may sweep any numeric parameter over a range; results
 are stacked into a single table, one row per (case, year).
 
-Conventions: SI base units throughout (altitude in metres, mass in kg), with one
+Conventions: SI base units throughout (altitude in meters, mass in kg), with one
 exception — time is in years. Costs are real dollars of the year declared in
 `finance.yaml`; the model performs no deflation, so that field states what the
 input figures are assumed to be, it does not convert them. Deployment pattern

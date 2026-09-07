@@ -104,7 +104,7 @@ class Scenario(Frozen):
 
     deployment_method: str
     deployed_material: str
-    altitude: float = Field(gt=0, description="Injection altitude, metres")
+    altitude: float = Field(gt=0, description="Injection altitude, meters")
 
     # Exactly one of these two. deployment_pattern names the deployed masses
     # directly and skips climatology. temperature_pattern names a cooling
@@ -285,7 +285,7 @@ def load_temperature_pattern(filename: str, inputs_dir: Path = INPUTS_DIR) -> pd
     check_years(df, path)
 
     # A year whose target sits above the warming expected without SAI needs no
-    # deployment, which is the ordinary way a programme begins; climatology
+    # deployment, which is the ordinary way a program begins; climatology
     # clamps those to zero. But a file where no year needs cooling describes
     # nothing to model, and the usual cause is the columns being swapped.
     if not (df[TEMPERATURE_COLUMNS[0]] > df[TEMPERATURE_COLUMNS[1]]).any():
