@@ -11,12 +11,13 @@ filesystem. The GUI edits files there and the model reads them back through the
 normal loader, so GUI input is validated exactly like hand-edited YAML — which
 is why nothing here validates anything itself.
 
-Module-level `results`, `sweep_params` and `currency_year` persist between the
+Module-level `results`, `sweep_params`, `inputs`, and `currency_year` persist between the
 separate JavaScript calls that make up one run-then-render-then-export cycle.
 """
 
 from CIIM_SAI.load_inputs import load_inputs, pop_sweepable, INPUTS_DIR
 from CIIM_SAI.run import run
+from CIIM_SAI.climatology import determine_cooling
 import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 from plotly.subplots import make_subplots
@@ -26,6 +27,7 @@ import json
 import yaml
 
 results = None
+inputs = None
 sweep_params: list[str] = []
 currency_year = None
 
@@ -43,7 +45,7 @@ def materialize_inputs(dest: str = "/ciim_inputs") -> None:
 
 def run_model(inputs_dir: str | None = None) -> str:
     """Run the scenario in inputs_dir (packaged defaults if None); keep results; return a summary."""
-    global results, sweep_params, currency_year
+    global results, inputs, sweep_params, currency_year
     inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
     scenario = inputs.scenario
     results = run(inputs)
@@ -79,6 +81,10 @@ def run_model(inputs_dir: str | None = None) -> str:
             opex=("opex", "sum"),
             total_cost=("total_cost", "sum"),
         )
+        if inputs.temperature is not None:
+            totals["per_degree_year"] = (
+                totals["total_cost"] / determine_cooling(inputs.temperature).sum()
+            )
         lines.append(f"\n{len(totals)} cases:\n")
         lines.append(totals.to_string(float_format=lambda v: f"{v:,.0f}"))
     return "\n".join(lines)
@@ -87,7 +93,30 @@ def run_model(inputs_dir: str | None = None) -> str:
 def results_csv() -> str:
     return results.to_csv(index=False)
 
+def cost_per_degree_year() -> str:
+    """Program cost divided by the cooling it buys, for a single climate run.
 
+    Empty for a sweep: degree-years are fixed by the temperature pattern, which
+    is not sweepable, so this is only total cost rescaled and belongs in the
+    totals table as a column rather than as one headline. Empty in override mode
+    too, where masses are named directly and there is no target to divide by.
+    """
+    if inputs is None or inputs.temperature is None or results["case"].nunique() != 1:
+        return ""
+    degree_years = determine_cooling(inputs.temperature).sum()
+    return f"${results['total_cost'].sum() / degree_years / 1e9:,.2f}B per degree-year"
+
+
+def derived_pattern_csv() -> str:
+    """The pattern climatology derived for the base scenario, as CSV text.
+
+    In Tg/year, the unit a deployment pattern file uses; Inputs.pattern is kg.
+    The base scenario only: under a sweep every case derives its own pattern,
+    and the form describes the base.
+    """
+    if inputs is None or inputs.temperature is None:
+        return ""
+    return (inputs.pattern / 1.0e9).to_csv()
 
 
 # "retro" font and color scheme. I like monospace font.
@@ -212,6 +241,7 @@ def scenario_form_init() -> str:
     root = Path("/ciim_inputs")
     scenario = yaml.safe_load((root / "scenario" / "scenario.yaml").read_text(encoding="utf-8"))
     material = yaml.safe_load((root / "material.yaml").read_text(encoding="utf-8"))
+    climate = yaml.safe_load((root / "climate.yaml").read_text(encoding="utf-8"))
     method = yaml.safe_load(
         (root / "deployment_methods" / f"{scenario['deployment_method']}.yaml")
         .read_text(encoding="utf-8"))
@@ -220,13 +250,27 @@ def scenario_form_init() -> str:
                  + pop_sweepable("material", material)
                  + pop_sweepable("method", method))
 
+        # A scenario-namespace path is only worth offering if this scenario actually
+    # has that field set. In override mode latitude is absent, so sweeping it
+    # would fail -- correctly, but only after the user had filled in a start,
+    # stop and step. Phrased as "the field is set" rather than naming latitude,
+    # a future climate-only field is handled without anyone remembering to.
+    sweepable = [p for p in sweepable
+                 if not p.startswith("scenario.")
+                 or scenario.get(p.split(".", 1)[1]) is not None]
+
     return json.dumps({
         "scenario": scenario,
         "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
         "materials": sorted(material),
         "sweepable": sweepable,
+        # The form seeds these when the mode radio flips to a mode whose file
+        # and latitude are not yet set.
+        "latitudes": sorted(climate["cooling_per_forcing"]),
+        "patterns": sorted(p.name for p in (root / "scenario" / "deployment_patterns").glob("*.csv")),
+        "temperature_patterns": sorted(
+            p.name for p in (root / "scenario" / "temperature_patterns").glob("*.csv")),
     })
-
 
 def write_scenario(scenario_json: str) -> None:
     """Replace scenario.yaml in the working inputs dir with the form's values."""
@@ -244,7 +288,9 @@ def pattern_csv(filename: str) -> str:
     """The text of one deployment pattern CSV in the working inputs dir."""
     return (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / filename).read_text(encoding="utf-8")
 
-
+def temperature_csv(filename: str) -> str:
+    """The text of one temperature pattern CSV in the working inputs dir."""
+    return (Path("/ciim_inputs") / "scenario" / "temperature_patterns" / filename).read_text(encoding="utf-8")
 
 def flatten(data: dict, prefix: str = "") -> list[tuple[str, object]]:
     """Depth-first (dot.path, value) pairs for every leaf of a nested dict. Used to pull input assumption fields out of the input files."""
@@ -352,5 +398,12 @@ def write_pattern(csv_text: str, filename: str) -> str:
     """Save an uploaded pattern CSV into the working inputs dir; return its filename."""
     name = Path(filename).name or "uploaded_pattern.csv"
     (Path("/ciim_inputs") / "scenario" / "deployment_patterns" / name).write_text(
+        csv_text, encoding="utf-8")
+    return name
+
+def write_temperature_pattern(csv_text: str, filename: str) -> str:
+    """Save an uploaded temperature pattern CSV into the working inputs dir."""
+    name = Path(filename).name or "uploaded_temperature_pattern.csv"
+    (Path("/ciim_inputs") / "scenario" / "temperature_patterns" / name).write_text(
         csv_text, encoding="utf-8")
     return name
