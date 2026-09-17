@@ -16,7 +16,10 @@ cooling_per_forcing:
   30: 0.7
   45: 0.8
   60: 0.9
-source: TODO — Govindasamy Bala and others
+source: TODO rethink
+
+
+
 
 # Stratospheric residence time by injection altitude and latitude, in months.
 # Only its ratio to a material's forcing.reference_lifetime_months is used, so

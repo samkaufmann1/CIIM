@@ -1,69 +1,82 @@
-"""Turning a temperature target into a deployment pattern.
+"""Atmospheric and climate calculations, independent of any deployment method.
 
-A scenario may name the deployed masses directly, or name the temperature it wants
-and leave the masses to be derived. This module does the second. A scenario
-with a deployment_pattern skips it entirely.
+Two jobs. The International Standard Atmosphere gives temperature and pressure
+as a function of altitude, which lighter-than-air platforms need to size gas
+volumes and buoyancy. Separately, generate_deployment_pattern() derives a
+deployment pattern from a temperature target, for scenarios that name the
+warming they want rather than the masses to deploy.
 
-For each year the temperature pattern gives the warming expected without SAI
-and the warming wanted. The difference is the cooling the program has to
-deliver, clamped at zero: a year already below its target needs no deployment.
-
-Turning that cooling into a mass takes three numbers.
-
-    cooling_per_forcing is the global mean cooling produced by a watt per
-    square meter of forcing applied at the injection latitude. The cooling
-    wanted, divided by this number, equals the forcing needed.
-
-    The deployed material's forcing.per_Tg_per_year is the forcing produced by
-    a teragram deployed each year. The forcing needed, divided by it, is a mass.
-
-    That coefficient was measured for injection at one particular place, whose
-    residence time is recorded beside it as forcing.reference_lifetime_months.
-    Aerosol deployed where it survives longer does more with the same annual
-    mass, so the mass is scaled by reference_lifetime_months over the residence
-    time at this scenario's own altitude and latitude. Above one means more
-    material is needed than in the reference case; below one, less.
-
-Residence times come from the lifetime table, averaged across its two
-seasons and interpolated between altitude rows. Only the ratio of two of them
-is ever taken, so the table stays in months and nothing converts to years.
-
-What falls out is one number: teragrams per year of the deployed material per
-degree of cooling. The cooling schedule multiplied by this number givesthe mass to deploy
-each year, half into the northern hemisphere and half into the southern at the
-same latitude (or all of it into one column at the equator).
-
-This module reads no files and imports nothing from load_inputs. Everything
-arrives as an argument, which makes the signature of generate_deployment_pattern()
-the list of everything the derivation depends on. It returns Tg/year, so
-load_inputs validates and converts it exactly as it would a hand-written CSV,
-and no unit conversion happens in here. determine_cooling() is public as well,
-because the cost per degree-year the front ends will report has to be divided by
-the same cooling schedule the deployment was derived from, not a second copy of it.
-
-Processes this module does not represent:
-
-    Response is linear in injection rate. Real forcing per teragram falls as
-    the rate rises: more aerosol coagulates into larger particles, which
-    scatter less per unit mass and fall out sooner. The model is optimistic
-    here, increasingly so above roughly a degree of cooling.
-
-    Cooling is instantaneous. A year's injection produces that year's cooling
-    with no ocean lag, so a sharply rising target understates what
-    the early years would really need.
-
-    One latitude, north and south. Allocating across several latitudes would
-    need goals beyond global mean temperature, which this model can't realistically simulate.
-
-    The lifetime adjustment is a ratio of passive tracer residence times, which
-    take no account of aerosol settling out. However, the same omission sits above
-    and below the division sign, so one might optimistically say that the bias cancels out.
+This module reads no files and imports nothing from load_inputs: everything
+arrives as an argument.
 """
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
+
+# --- Calculate atmospheric properties from the International Standard Atmosphere
+
+# The ISA defines its own constants, and they are not all the modern CODATA
+# values: the gas constant below is the standard's 8.31432, not 8.314462618.
+# Using the standard's own figures is what makes this function reproduce the
+# published ISA tables rather than something 0.01% away from them.
+GAS_CONSTANT = 8.31432          # R, J/(mol K)
+GRAVITY = 9.80665               # g, m/s2
+MOLAR_MASS_AIR = 0.0289644      # M, kg/mol
+
+# One row per ISA layer: (base altitude m, base temperature K, base pressure Pa,
+# lapse rate K/m). Temperature is linear in altitude within a layer; pressure
+# follows from integrating hydrostatic balance across it. Base pressures are the
+# standard's published values, which agree with integrating the layer below to
+# within rounding, so they also serve as a check on this table.
+LAYERS = (
+    (0,     288.15, 101325.0, -0.0065),
+    (11000, 216.65,  22632.1,  0.0),
+    (20000, 216.65,   5474.89, 0.001),
+    (32000, 228.65,    868.02, 0.0028),
+)
+
+# Top of the last layer: the stratopause. Above it the model has no business
+# making claims, so an altitude past the stratopause is an error.
+CEILING = 47000.0
+
+
+def find_atmospheric_temperature_and_pressure(altitude: float) -> tuple[float, float]:
+    """Temperature (K) and pressure (Pa) at `altitude` (m) in the ISA.
+
+    Within a layer, temperature is base + lapse * height above base. Pressure
+    comes from hydrostatic balance with the ideal gas law, which integrates to a
+    power law where the lapse rate is non-zero and to an exponential where the
+    layer is isothermal and the power law would divide by zero.
+    """
+    if not 0.0 <= altitude <= CEILING:
+        raise ValueError(
+            f"altitude {altitude:,.0f} m is outside the modelled atmosphere "
+            f"(0 to {CEILING:,.0f} m)"
+        )
+
+    # The highest layer whose base is at or below this altitude. The guard above
+    # guarantees a match, since the first layer's base is sea level.
+    base_altitude, base_temperature, base_pressure, lapse_rate = next(
+        layer for layer in reversed(LAYERS) if altitude >= layer[0]
+    )
+
+    temperature = base_temperature + lapse_rate * (altitude - base_altitude)
+    if lapse_rate == 0.0:
+        pressure = base_pressure * math.exp(
+            -GRAVITY * MOLAR_MASS_AIR * (altitude - base_altitude)
+            / (GAS_CONSTANT * base_temperature)
+        )
+    else:
+        pressure = base_pressure * (base_temperature / temperature) ** (
+            GRAVITY * MOLAR_MASS_AIR / (GAS_CONSTANT * lapse_rate)
+        )
+    return temperature, pressure
+
+
 
 
 # --- Reading the lifetime table ----------------------------------------------
@@ -71,6 +84,7 @@ import pandas as pd
 
 def average_seasons(lifetimes: pd.DataFrame) -> pd.DataFrame:
     """Average two injection seasons into one annual table.
+
     This is done to the Toohey (2025) data as a crude stand-in for a program that deploys all year round. It is a named
     function rather than a line inside find_lifetime because it is the whole of
     the seasonal simplification: a seasonal deployment strategy would replace
@@ -88,6 +102,12 @@ def find_lifetime(annual: pd.DataFrame, altitude: float, latitude: int) -> float
     # Dropping the blanks first is what makes the two errors below differ. A
     # blank means that altitude is below the tropopause at this latitude, so
     # the lowest usable row is 17 km near the equator but 13 km at 45 degrees.
+    
+    if latitude not in annual.columns:
+        raise ValueError(
+            f"the lifetime table has no column for {latitude} degrees; "
+            f"it covers {', '.join(str(lat) for lat in annual.columns)}"
+        )
     column = annual[latitude].dropna()
 
     if altitude < column.index.min():
@@ -169,7 +189,64 @@ def generate_deployment_pattern(
 
     Indexed by year, one column per latitude in the symmetric grid, in Tg per
     year -- the shape of a deployment pattern CSV, so load_inputs checks and
-    converts it exactly as it would a hand-written one.
+    converts it exactly as it would a hand-written one. A scenario that names a
+    deployment_pattern directly never calls this.
+
+    For each year the temperature pattern gives the warming expected without SAI
+    and the warming wanted. The difference is the cooling the program has to
+    deliver, clamped at zero: a year already below its target needs no deployment.
+
+    Turning that cooling into a mass takes three numbers.
+
+        cooling_per_forcing is the global mean cooling produced by a watt per
+        square meter of forcing applied at the injection latitude. The cooling
+        wanted, divided by this number, equals the forcing needed.
+
+        The deployed material's forcing.per_Tg_per_year is the forcing produced
+        by a teragram deployed each year. The forcing needed, divided by it, is
+        a mass.
+
+        That coefficient was measured for injection at one particular place,
+        whose residence time is recorded beside it as
+        forcing.reference_lifetime_months. Aerosol deployed where it survives
+        longer does more with the same annual mass, so the mass is scaled by
+        reference_lifetime_months over the residence time at this scenario's own
+        altitude and latitude. Above one means more material is needed than in
+        the reference case; below one, less.
+
+    Residence times come from the lifetime table, averaged across its two seasons
+    and interpolated between altitude rows. Only the ratio of two of them is ever
+    taken, so the table stays in months and nothing converts to years.
+
+    What falls out is one number: teragrams per year of the deployed material per
+    degree of cooling. The cooling schedule multiplied by this number gives the
+    mass to deploy each year, half into the northern hemisphere and half into the
+    southern at the same latitude (or all of it into one column at the equator).
+
+    Everything arrives as an argument, so this signature is the list of everything
+    the derivation depends on. determine_cooling() is public as well, because the
+    cost per degree-year the front ends will report has to be divided by the same
+    cooling schedule the deployment was derived from, not a second copy of it.
+
+    Processes this derivation does not represent:
+
+        Response is linear in injection rate. Real forcing per teragram falls as
+        the rate rises: more aerosol coagulates into larger particles, which
+        scatter less per unit mass and fall out sooner. The model is optimistic
+        here, increasingly so above roughly a degree of cooling.
+
+        Cooling is instantaneous. A year's injection produces that year's cooling
+        with no ocean lag, so a sharply rising target understates what the early
+        years would really need.
+
+        One latitude, north and south. Allocating across several latitudes would
+        need goals beyond global mean temperature, which this model can't
+        realistically simulate.
+
+        The lifetime adjustment is a ratio of passive tracer residence times,
+        which take no account of aerosol settling out. However, the same omission
+        sits above and below the division sign, so one might optimistically say
+        that the bias cancels out.
     """
     cooling = determine_cooling(temperature)
     lifetime = find_lifetime(average_seasons(lifetimes), altitude, latitude)

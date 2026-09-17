@@ -17,7 +17,7 @@ import math
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import pandas as pd
 import yaml
@@ -141,7 +141,7 @@ class Scenario(Frozen):
 class Climate(Frozen):
     """climate.yaml: the simplified climate representation."""
 
-    cooling_per_forcing: dict[int, float] = Field(
+    cooling_per_forcing: dict[int, Annotated[float, Field(gt=0)]] = Field( # default 0
         description="degC of global mean cooling per W/m2 of forcing, by injection latitude"
     )
     source: str
