@@ -14,7 +14,7 @@ Generative AI tools were used to help write the code and documentation in this
 repo. I take full responsibility as the author for everything produced using
 these tools.
 
-**[Live demo](https://samkaufmann1.github.io/CIIM/)** — runs the actual model in
+**[Live demo](https://samkaufmann1.github.io/CIIM/)** — runs the model in
 your browser via WebAssembly.
 
 ## How it works

@@ -50,7 +50,7 @@ launch:
   operating_days_per_year: 300     # the rest lost to weather
   support_staff_per_crew: 1
 
-debris:
+debris_collection:
   drone_cost: 1.0e+4
   drone_lifetime_years: 5
   drone_availability: 0.75         # fraction of the owned fleet flyable
@@ -73,7 +73,7 @@ sweepable:
   - launch.operating_days_per_year
   - launch.maintenance_rate
   - launch.misc_operating_rate
-  - debris.drone_cost
-  - debris.drone_availability
-  - debris.ground_crew_overhead
+  - debris_collection.drone_cost
+  - debris_collection.drone_availability
+  - debris_collection.ground_crew_overhead
   - labor.salary

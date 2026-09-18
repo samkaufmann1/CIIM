@@ -51,7 +51,12 @@ compute in JavaScript what Python can compute.
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by
   importing `deploy_<method>` dynamically — adding a method requires no edit here.
 - A deployment method module's entire contract is `deployment_schedule(inputs)
-  -> DataFrame`, indexed by year. Everything else in such a module is private to it.
+  -> DataFrame`, indexed by year. Everything else in such a module is private to
+  it, including the schemas it owns: the root class validating `<name>.yaml` is
+  named `<Name>Method`, and the class validating the scenario's `method_options`
+  is `<Name>Options`. Checks that span two input files — a design the scenario
+  names against the designs the method file defines — live in the method module
+  as small `find_*` functions, since neither schema can see the other's file.
 - `docs/app.py` is called function-by-name from JavaScript in `docs/index.html`.
   It runs under Pyodide, where `/ciim_inputs` is a writable copy of the packaged
   inputs in a virtual filesystem.

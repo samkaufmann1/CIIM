@@ -48,7 +48,7 @@ class Unit(Frozen):
     consumption: dict[str, Consumption]
 
 
-class Teleporter(Frozen):
+class TeleporterMethod(Frozen):
     """The contents of teleporter.yaml. Keys named by the user (teleportationist, unobtanium)
     are dict keys; the model does not need to enumerate them."""
 
@@ -159,7 +159,7 @@ def deployment_schedule(inputs: Inputs) -> pd.DataFrame:
     so the column set varies with the YAML, not just with the method.
     """
       
-    teleporter = Teleporter(**inputs.method)
+    teleporter = TeleporterMethod(**inputs.method)
     unit = teleporter.unit
     pattern = inputs.pattern
 

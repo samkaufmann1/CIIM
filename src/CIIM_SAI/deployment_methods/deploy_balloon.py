@@ -18,11 +18,15 @@ from __future__ import annotations
 
 import math
 
+from pydantic import Field, model_validator
+
 from CIIM_SAI.climatology import (
     GAS_CONSTANT,
     MOLAR_MASS_AIR,
     find_atmospheric_temperature_and_pressure,
 )
+
+from CIIM_SAI.load_inputs import Frozen, Material
 
 
 def find_gas_fill(
@@ -126,3 +130,125 @@ def find_gas_fill(
         )
 
     return moles_lift * molar_mass_lift, moles_payload * molar_mass_payload
+
+
+
+# --- Classes from balloon.yaml -----------------------------------------------
+# One class per nesting level in the YAML.
+
+
+class Development(Frozen):
+    NRE: float = Field(ge=0, description="Total non-recurring engineering cost, USD")
+    duration_years: int = Field(gt=0, description="Years of development before the first order")
+
+
+class BalloonDesign(Frozen):
+    """One entry under balloon.designs: a balloon that can be bought and flown."""
+
+    mass: float = Field(gt=0, description="Empty envelope, kg")
+    burst_diameter: float = Field(gt=0, description="Diameter the latex bursts at, m")
+    cost: float = Field(ge=0, description="Purchase price of one balloon, USD")
+    launch_time_hours: float = Field(gt=0, description="Pad time to fill and release one balloon")
+    launch_crew: int = Field(ge=0, description="People needed to launch one balloon")
+    source: str
+
+
+class Balloon(Frozen):
+    lift_gas: str = Field(description="A material in material.yaml, carrying a molar mass")
+    buoyancy_margin: float = Field(
+        gt=0, lt=1, description="Net lift as a fraction of displaced air mass"
+    )
+    designs: dict[str, BalloonDesign]
+
+    @model_validator(mode="after")
+    def at_least_one_design(self) -> Balloon:
+        if not self.designs:
+            raise ValueError("balloon.designs needs at least one design to launch")
+        return self
+
+
+class Launch(Frozen):
+    pads_per_facility: int = Field(gt=0)
+    pad_cost: float = Field(ge=0, description="USD per launchpad")
+    facility_cost: float = Field(ge=0, description="USD per facility, excluding its pads")
+    facility_build_years: int = Field(ge=0, description="Years from order to operating")
+    maintenance_rate: float = Field(ge=0, description="Per year, against installed capital")
+    misc_operating_rate: float = Field(ge=0, description="Per year, against installed capital")
+    operating_hours_per_day: float = Field(gt=0, le=24)
+    operating_days_per_year: float = Field(gt=0, le=366)
+    support_staff_per_crew: float = Field(ge=0, description="Non-launch staff per launch crew")
+
+
+class DebrisCollection(Frozen):
+    drone_cost: float = Field(ge=0, description="USD per drone")
+    drone_lifetime_years: int = Field(gt=0)
+    drone_availability: float = Field(gt=0, le=1, description="Fraction of the owned fleet flyable")
+    flight_distance: float = Field(ge=0, description="One way to the dump site, m")
+    flight_speed: float = Field(gt=0, description="Averaged over the mission, m/s")
+    ground_cycle_seconds: float = Field(ge=0, description="Per catch, on the ground")
+    ground_crew_overhead: float = Field(
+        ge=0, description="Crew hours per hour of drone ground cycle"
+    )
+
+
+class Labor(Frozen):
+    salary: float = Field(ge=0, description="Pay plus overhead, USD per person per year")
+
+
+class BalloonMethod(Frozen):
+    """The contents of balloon.yaml.
+
+    Named for the file rather than for the balloon block inside it, which the
+    Balloon class above describes. Design names (weather_4kg) are dict keys the
+    model does not enumerate, as labor roles and consumables are elsewhere.
+    """
+
+    development: Development
+    balloon: Balloon
+    launch: Launch
+    debris_collection: DebrisCollection
+    labor: Labor
+
+
+class BalloonOptions(Frozen):
+    """The scenario's method_options when the deployment method is balloon."""
+
+    design: str = Field(description="A key under balloon.designs in balloon.yaml")
+
+
+# --- Checks that span more than one input file -------------------------------
+# Neither of these can live in a schema: each compares something the scenario
+# names against something another file defines, so they belong where both are
+# in hand, like Inputs.__post_init__.
+
+
+def find_design(method: BalloonMethod, options: BalloonOptions) -> BalloonDesign:
+    """The design the scenario selected, from the ones the method file offers."""
+    design = method.balloon.designs.get(options.design)
+    if design is None:
+        raise ValueError(
+            f"method_options.design is {options.design!r}, which balloon.yaml does not "
+            f"define. Designs offered: {', '.join(sorted(method.balloon.designs))}"
+        )
+    return design
+
+
+def find_gas(materials: dict[str, Material], name: str, role: str) -> Material:
+    """A gas from material.yaml, with the molar mass this method needs.
+
+    molar_mass is optional on Material, since a material moved as a bulk mass
+    has no use for one, so a gas without it fails here rather than as an
+    arithmetic error further down. `role` names which gas for the message.
+    """
+    material = materials.get(name)
+    if material is None:
+        raise ValueError(
+            f"the {role} is {name!r}, which material.yaml does not define. "
+            f"Materials: {', '.join(sorted(materials))}"
+        )
+    if material.molar_mass is None:
+        raise ValueError(
+            f"the {role} {name!r} has no molar_mass in material.yaml, which balloon "
+            f"deployment needs in order to size the gas fill"
+        )
+    return material
