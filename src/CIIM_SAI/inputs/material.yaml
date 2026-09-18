@@ -20,8 +20,34 @@ unobtanium:
   source: fictional
 
 
+H2:
+  cost: 5.0
+  source: placeholder; roughly the delivered price of industrial hydrogen
+  molar_mass: 0.002016
+
+H2S:
+  cost: 0.30
+  source: >-
+    Placeholder. Conservative against solid sulfur, and H2S sits earlier in the
+    refining process than solid S does, but it is harder to transport. Jim has
+    pointed out to me that at an oil refinery, they will (in principle) actually
+    pay you to take away H2S.
+  molar_mass: 0.034076
+  forcing:
+    per_Tg_per_year: 0.188
+    reference_lifetime_months: 30.25
+    source: >-
+      No SAI simulation has used H2S. Both figures stand in for it: the forcing
+      is SO2's 0.1 W/m2 per Tg/year scaled by sulfur content (94.1% of H2S
+      against 50.0% of SO2), and the reference lifetime is SO2's unchanged.
+
+
 sweepable:
   - SO2.cost
   - SO2.forcing.per_Tg_per_year
   - SO2.forcing.reference_lifetime_months
   - unobtanium.cost
+  - H2.cost
+  - H2S.cost
+  - H2S.forcing.per_Tg_per_year
+  - H2S.forcing.reference_lifetime_months

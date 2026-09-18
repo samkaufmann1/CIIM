@@ -1,0 +1,79 @@
+# Balloon-borne deployment: disposable spherical latex balloons filled with a lift gas and
+# the deployed material as payload gas, launched from facilities of launchpads,
+# bursting at the injection altitude.
+#
+# Units are SI base units or USD unless noted otherwise in the variable name.
+
+# Concept of operations and systems integration, not balloon manufacturing:
+# this model has no representation of balloon factories, which is the largest
+# gap in it and the main reason the unit costs below are uncertain.
+# 
+# Future plan includes representing non-spherical balloons, but no data on those yet.
+
+
+development:
+  NRE: 1.0e+8
+  duration_years: 3
+
+balloon:
+  lift_gas: H2
+  buoyancy_margin: 0.10      # net lift as a fraction of displaced air mass
+
+  designs:
+    weather_1kg:
+      mass: 1.0
+      burst_diameter: 7.86
+      cost: 20.0
+      launch_time_hours: 0.1
+      launch_crew: 2
+      source: >-
+        Kaymont / Totex HAB-1000, kaymont.com/product-page/hab-1000. $90 retail; $20
+        assumes economies of scale at deployment volumes.
+    weather_4kg:
+      mass: 4.0
+      burst_diameter: 15.42
+      cost: 100.0
+      launch_time_hours: 0.25
+      launch_crew: 3
+      source: >-
+        Kaymont / Totex HAB-4000, kaymont.com/product-page/hab-4000. $900 retail; $100
+        assumes economies of scale at deployment volumes.
+
+launch:
+  pads_per_facility: 10
+  pad_cost: 1.0e+6
+  facility_cost: 5.0e+6
+  facility_build_years: 1
+  maintenance_rate: 0.03           # per year, against installed capital
+  misc_operating_rate: 0.05        # per year: utilities, gas handling, consumables
+  operating_hours_per_day: 8       # daylight only, for safety
+  operating_days_per_year: 300     # the rest lost to weather
+  support_staff_per_crew: 1
+
+debris:
+  drone_cost: 1.0e+4
+  drone_lifetime_years: 5
+  drone_availability: 0.75         # fraction of the owned fleet flyable
+  flight_distance: 2000            # one way to the dump site
+  flight_speed: 15                 # averaged over the mission
+  ground_cycle_seconds: 90         # drop the envelope, swap batteries, inspect
+  ground_crew_overhead: 1.5        # crew hours per hour of drone ground cycle
+
+labor:
+  salary: 1.0e+5                   # pay plus overhead, per person per year
+
+sweepable:
+  - development.NRE
+  - development.duration_years
+  - balloon.buoyancy_margin
+  - balloon.designs.weather_1kg.cost
+  - balloon.designs.weather_4kg.cost
+  - launch.pad_cost
+  - launch.facility_cost
+  - launch.operating_days_per_year
+  - launch.maintenance_rate
+  - launch.misc_operating_rate
+  - debris.drone_cost
+  - debris.drone_availability
+  - debris.ground_crew_overhead
+  - labor.salary

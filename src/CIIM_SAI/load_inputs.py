@@ -52,6 +52,9 @@ class Material(Frozen):
 
     cost: float = Field(ge=0, description="USD per kg of this material")
     source: str = Field(description="Where the cost figure came from")
+    molar_mass: float | None = Field(
+        default=None, gt=0, description="kg/mol; needed only where a method moves this material as a gas"
+    )
     forcing: Forcing | None = None   # only a deployed material needs one
 
 
