@@ -117,6 +117,14 @@ class Scenario(Frozen):
         description="Injection latitude, degrees; deployed half north and half south",
     )
 
+    # Method-specific choices: which balloon design, which airframe, etc.
+    # Free-form here because Scenario is shared by every method; the
+    # method's module validates the contents against a schema it owns, with
+    # extra="forbid", so a misspelled key is an error rather than a silent
+    # default. Note that frozen=True stops this attribute being reassigned but
+    # does not stop the dict itself being mutated.
+    method_options: dict[str, Any] = Field(default_factory=dict)
+
     sweep: dict[str, SweepRange] = Field(default_factory=dict)
     # Numeric ranges only for now. Sweeping deployment_method or
     # deployment_pattern needs a list of strings, i.e. SweepRange | list[...].
@@ -476,11 +484,14 @@ def set_at(data: dict[str, Any], path: str, value: Any) -> None:
 def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
     """Rebuild `base` with overrides applied, re-running validation.
 
-    Overrides are the namespaced paths a sweep block names, so each one is
-    routed to the part of the input set that owns it. Scenario and material
-    values go back through their constructors rather than being assigned, so a
-    swept value gets the same checks a hand-written one would; method values
-    land in a raw dict and are checked later by the method module that owns it.
+    Overrides are the namespaced paths a sweep block names: the first segment
+    routes each one to the part of the input set that owns it, and the rest
+    locates the value within that part, at whatever depth -- "scenario.altitude"
+    names a field, "material.SO2.forcing.per_Tg_per_year" reaches three levels
+    in. Scenario and material values go back through their constructors rather
+    than being assigned, so a swept value gets the same checks a hand-written
+    one would; method values land in a raw dict and are checked later by the
+    method module that owns it.
 
     The pattern comes along too: in climate mode it is re-derived for this case,
     since altitude, latitude and the material's forcing block are all sweepable.
@@ -494,7 +505,13 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
             )
         by_root[root][rest] = value
 
-    scenario = Scenario(**{**base.scenario.model_dump(), **by_root["scenario"]})
+    # Scenario overrides name a path into the scenario, which may be nested:
+    # "altitude" names a field, "method_options.design" reaches inside one.
+    # Rebuilding from the edited dict re-runs the schema's validation.
+    scenario_data = base.scenario.model_dump()
+    for path, value in by_root["scenario"].items():
+        set_at(scenario_data, path, value)
+    scenario = Scenario(**scenario_data)
 
     # A material override names a path inside one material, like
     # "SO2.forcing.per_Tg_per_year": the first key picks the material and the rest is
