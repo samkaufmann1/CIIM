@@ -23,7 +23,7 @@ import pandas as pd
 # values: the gas constant below is the standard's 8.31432, not 8.314462618.
 # Using the standard's own figures is what makes this function reproduce the
 # published ISA tables rather than something 0.01% away from them.
-GAS_CONSTANT = 8.31432          # R, J/(mol K)
+IDEAL_GAS_CONSTANT = 8.31432          # R, J/(mol K)
 GRAVITY = 9.80665               # g, m/s2
 MOLAR_MASS_AIR = 0.0289644      # M, kg/mol
 
