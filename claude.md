@@ -64,6 +64,10 @@ compute in JavaScript what Python can compute.
   is `<Name>Options`. Checks that span two input files — a design the scenario
   names against the designs the method file defines — live in the method module
   as small `find_*` functions, since neither schema can see the other's file.
+  Every method must produce `demand`, `capacity`, `utilization`,
+  `development_cost`, `capex`, `opex` and `total_cost`; those are what the front
+  ends and the charts may assume. Every other column is the method's own, so
+  anything comparing methods works from that set alone.
 - Every method's schedule must carry `demand`, `capacity`, `utilization`,
   `development_cost`, `capex`, `opex` and `total_cost`, because the front ends
   compare across methods on those. Everything else is the method's own: the

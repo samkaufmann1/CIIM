@@ -79,11 +79,14 @@ choices:
 - **No early retirement.** An asset serves exactly its lifetime, even if demand
   has fallen and it is idle. Idle capacity keeps drawing maintenance, though not
   the utilities and consumables that only accrue where something is happening.
-- **Latitude affects the derivation, not the costing.** In climate mode the
-  injection latitude sets both the temperature response to forcing and the
-  aerosol's residence time, so it changes how much material is needed. Once the
-  mass is known the model sums across latitudes and costs the total; nothing
-  about building or running the fleet depends on where the material goes.
+- **Latitude enters twice, coarsely.** In climate mode the injection latitude
+  sets both the temperature response to forcing and the aerosol's residence
+  time, so it changes how much material is needed. Separately, a method that
+  launches from the ground needs a site at each latitude it deploys to, so the
+  same total mass spread across more latitudes buys more facilities and pays
+  more to maintain them. Beyond that floor, the model sums across latitudes and
+  costs the total: nothing else about building or running the fleet depends on
+  where the material goes.
 - **The climate representation is deliberately crude.** Response is linear in
   injection rate, cooling is instantaneous with no ocean lag, and only one
   injection latitude is modeled at a time. `climatology.py`'s docstring states
