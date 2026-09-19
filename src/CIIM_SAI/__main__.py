@@ -55,7 +55,6 @@ def main() -> None:
         print(results.drop(columns="case").to_string(index=False))
     else:
         totals = results.groupby(list(scenario.sweep)).agg(
-            units_bought=("entering_service", "sum"),
             development=("development_cost", "sum"),
             capex=("capex", "sum"),
             opex=("opex", "sum"),

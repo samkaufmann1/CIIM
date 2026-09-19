@@ -75,7 +75,6 @@ def run_model(inputs_dir: str | None = None) -> str:
         )
     else:
         totals = results.groupby(list(scenario.sweep)).agg(
-            units_bought=("entering_service", "sum"),
             development=("development_cost", "sum"),
             capex=("capex", "sum"),
             opex=("opex", "sum"),

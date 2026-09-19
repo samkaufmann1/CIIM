@@ -5,10 +5,17 @@ A Python model of the infrastructure behind a stratospheric aerosol injection
 supplied, year by year, to deliver a given deployment pattern — and what it
 would cost.
 
-**Status: early development.** The only deployment method implemented so far is
-a fictional one (a fleet of teleporters consuming unobtanium), used to exercise
-the model's machinery while it is built. No output of this model is a research
-result.
+**Status: early development.** Two deployment methods are implemented. Balloons
+are the real one: latex weather balloons filled with hydrogen and a payload gas,
+launched from facilities of launchpads, bursting at the injection altitude. The
+teleporter is fictional, kept because a deliberately simple method is useful for
+exercising the model's machinery.
+
+Treat the balloon figures as preliminary. The largest single cost is the
+balloons themselves, at an assumed unit price well below what small quantities
+retail for today — an assumption about manufacturing at deployment scale, not a
+quotation, and one this model has no representation of. Nothing here has been
+reviewed by anyone in the balloon industry.
 
 Generative AI tools were used to help write the code and documentation in this
 repo. I take full responsibility as the author for everything produced using
@@ -23,15 +30,15 @@ All inputs are files packaged under `src/CIIM_SAI/inputs/`:
 
 | File | Contents |
 |---|---|
-| `scenario/scenario.yaml` | Which deployment method and material to run; injection altitude; either a deployment pattern or a temperature target with an injection latitude; optional parameter sweeps |
+| `scenario/scenario.yaml` | Which deployment method and material to run; injection altitude; either a deployment pattern or a temperature target with an injection latitude; `method_options` for choices that mean something only to the chosen method, such as which balloon design to fly; optional parameter sweeps |
 | `scenario/deployment_patterns/*.csv` | Deployed mass (Tg/year) by year and latitude |
 | `scenario/temperature_patterns/*.csv` | Warming expected without SAI, and warming wanted (°C) by year |
-| `deployment_methods/*.yaml` | One file per deployment method: development (NRE), unit cost, lifetime, capacity, lead time, labor, consumables |
+| `deployment_methods/*.yaml` | One file per deployment method, in whatever shape that method's module defines: development, the assets it buys, what it consumes, and who operates it |
 | `material.yaml` | Materials: cost per kg, and for a deployed material its radiative forcing per Tg per year |
 | `climate.yaml` | Temperature response to forcing by injection latitude; which residence-time table to use |
 | `stratospheric_lifetimes/*.csv` | Aerosol residence time (months) by injection altitude and latitude |
-
 | `finance.yaml` | Currency conventions |
+
 All files indicate which variables, if any, can be used as part of a parameter sweep.
 
 A scenario says how much is deployed in one of two ways. It can name a
@@ -44,13 +51,14 @@ per Tg per year, then adjusting for how long aerosol survives at that altitude
 and latitude. The result is a deployment pattern in the same format as a
 hand-written one, and the rest of the model cannot tell the difference.
 
-From the deployment pattern, the model determines how many units must be in
-service each year, then schedules orders, deliveries, and retirements around
-unit lifetime and lead time, and prices the result: development spread over the
-years before the first order, capital spread across each unit's lead time, and
-operating costs (labor, consumables, and the deployed material itself) for the
-active fleet. A scenario may sweep any numeric parameter over a range; results
-are stacked into a single table, one row per (case, year).
+From the deployment pattern, a method works out what it must own and operate
+each year — teleporters for one, launchpads and facilities and recovery drones
+for the other — and schedules purchases, deliveries and retirements around each
+asset's lifetime and lead time. It then prices the result: development spread
+over the years before the first order, capital spread across each asset's lead
+time, and operating costs for what is in service. A scenario may sweep any
+numeric parameter over a range; results are stacked into a single table, one row
+per (case, year).
 
 Conventions: SI base units throughout (altitude in meters, mass in kg), with one
 exception — time is in years. Costs are real dollars of the year declared in
@@ -66,10 +74,11 @@ choices:
 - **No discounting.** All figures are undiscounted annual flows.
 - **No price-level conversion.** See `finance.yaml` above.
 - **No production limits.** Any number of units can be ordered in a year.
-- **Homogeneous units.** One capacity, one cost, one lifetime per method; no
-  variants, no learning curve, no mid-life refits.
-- **No early retirement.** A unit serves exactly its lifetime, even if demand
-  has fallen and it is idle.
+- **Homogeneous assets.** A method may offer several designs, but one run flies
+  one of them: no mixed fleets, no learning curve, no mid-life refits.
+- **No early retirement.** An asset serves exactly its lifetime, even if demand
+  has fallen and it is idle. Idle capacity keeps drawing maintenance, though not
+  the utilities and consumables that only accrue where something is happening.
 - **Latitude affects the derivation, not the costing.** In climate mode the
   injection latitude sets both the temperature response to forcing and the
   aerosol's residence time, so it changes how much material is needed. Once the
@@ -149,7 +158,8 @@ src/CIIM_SAI/          the model
   climatology.py       derives a deployment pattern from a temperature target
   __main__.py          command-line entry point; demonstration only
   deployment_methods/  one deploy_<name>.py per method: its input schema
-                       and its cost/schedule calculation
+                       and its cost/schedule calculation, plus scheduling.py,
+                       the asset timing arithmetic they share
   inputs/              packaged default inputs (YAML + CSV)
 docs/                  the browser version (see above)
 ```

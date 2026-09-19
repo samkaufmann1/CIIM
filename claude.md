@@ -10,8 +10,8 @@ readable and auditable by one person, not a production system.
 
 ## Conventions
 
-- **Functions are verbs, variables are nouns** (`build_fleet` the function,
-  `fleet` the value). Not style — same-name collisions have bitten this codebase.
+- **Functions are verbs, variables are nouns** (`schedule_assets` the function,
+  `assets` the value). Not style — same-name collisions have bitten this codebase.
 - **SI base units everywhere**: meters, kilograms, USD. The single exception is
   time, which is in years. Deployment pattern CSVs are in Tg/year purely as a
   file-format convention and are converted to kg at load.
@@ -48,6 +48,13 @@ compute in JavaScript what Python can compute.
   `scenario.altitude` or `method.unit.cost`. Declaring per file is what keeps
   a new deployment method from needing an edit anywhere central, and what
   lets method modules stay ignorant that sweeping exists.  
+- `deployment_methods/scheduling.py` holds the timing arithmetic every method
+  needs: how many assets a demand calls for, when they enter service and retire,
+  and how development and capital costs fall across the years. It knows nothing
+  about what the assets are, and takes plain numbers rather than any method's
+  schema. A helper used only by method modules lives inside
+  `deployment_methods/`; one used more widely, like `climatology.py`, stays at
+  the top level.
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by
   importing `deploy_<method>` dynamically — adding a method requires no edit here.
 - A deployment method module's entire contract is `deployment_schedule(inputs)
@@ -57,6 +64,12 @@ compute in JavaScript what Python can compute.
   is `<Name>Options`. Checks that span two input files — a design the scenario
   names against the designs the method file defines — live in the method module
   as small `find_*` functions, since neither schema can see the other's file.
+- Every method's schedule must carry `demand`, `capacity`, `utilization`,
+  `development_cost`, `capex`, `opex` and `total_cost`, because the front ends
+  compare across methods on those. Everything else is the method's own: the
+  teleporter's `active` and `ordered`, the balloon's `launchpads_active` and
+  `drones_flying`. Anything a front end aggregates must come from the guaranteed
+  set.
 - `docs/app.py` is called function-by-name from JavaScript in `docs/index.html`.
   It runs under Pyodide, where `/ciim_inputs` is a writable copy of the packaged
   inputs in a virtual filesystem.

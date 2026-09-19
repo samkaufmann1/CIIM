@@ -5,8 +5,10 @@
 # Units are SI base units or USD unless noted otherwise in the variable name.
 # deployment_pattern names a file in deployment_patterns/.
 
-deployment_method: teleporter
-deployed_material: SO2
+deployment_method: balloon
+deployed_material: H2S
+method_options:
+  design: weather_4kg
 altitude: 20000
 
 

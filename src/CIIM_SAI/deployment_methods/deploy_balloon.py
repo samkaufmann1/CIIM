@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+import pandas as pd
 from pydantic import Field, model_validator
 
 from CIIM_SAI.climatology import (
@@ -25,8 +27,14 @@ from CIIM_SAI.climatology import (
     MOLAR_MASS_AIR,
     find_atmospheric_temperature_and_pressure,
 )
-
-from CIIM_SAI.load_inputs import Frozen, Material
+from CIIM_SAI.deployment_methods.scheduling import (
+    determine_units_required,
+    find_program_years,
+    schedule_assets,
+    spread_capital,
+    spread_development,
+)
+from CIIM_SAI.load_inputs import Frozen, Inputs, Material
 
 
 def find_gas_fill(
@@ -45,7 +53,7 @@ def find_gas_fill(
     pressure and temperature, and so fixes how many moles of gas go in. Aiming
     higher means less gas, and therefore less lift and less payload.
 
-    Two facts make the solve a pair of linear equations rather than an ascent
+    Two facts make the solve a system of two linear equations rather than an ascent
     simulation.
 
         Free lift does not change with altitude. These balloons are not pressurized, so the
@@ -97,7 +105,7 @@ def find_gas_fill(
             f"must lie strictly between 0 and 1; got {buoyancy_margin!r}. At 0 the "
             f"balloon is neutrally buoyant and never ascends; at 1 or above it "
             f"would have to weigh nothing at all. A margin passed as a percentage "
-            f"rather than a fraction lands here."
+            f"rather than a fraction will trigger this error message."
         )
     if molar_mass_lift == molar_mass_payload: # IDK if this error check is really that important, but it doesn't hurt
         raise ValueError(
@@ -167,16 +175,28 @@ class Balloon(Frozen):
         return self
 
 
+class Pad(Frozen):
+    cost: float = Field(ge=0, description="USD per launchpad")
+    lifetime_years: int = Field(gt=0, description="Years in service before replacement")
+
+
+class Facility(Frozen):
+    pads: int = Field(gt=0, description="Launchpads one facility holds")
+    cost: float = Field(ge=0, description="USD per facility, excluding its pads")
+    build_years: int = Field(ge=0, description="Years from order to operating")
+    lifetime_years: int = Field(gt=0, description="Years in service before replacement")
+
+
 class Launch(Frozen):
-    pads_per_facility: int = Field(gt=0)
-    pad_cost: float = Field(ge=0, description="USD per launchpad")
-    facility_cost: float = Field(ge=0, description="USD per facility, excluding its pads")
-    facility_build_years: int = Field(ge=0, description="Years from order to operating")
-    maintenance_rate: float = Field(ge=0, description="Per year, against installed capital")
-    misc_operating_rate: float = Field(ge=0, description="Per year, against installed capital")
-    operating_hours_per_day: float = Field(gt=0, le=24)
+    """Assumptions shared by every launchpad and facility."""
+
+    operating_hours_per_day: float = Field(gt=0, le=24) # lol thanks claude for making sure there aren't more than 24 hours in a day
     operating_days_per_year: float = Field(gt=0, le=366)
     support_staff_per_crew: float = Field(ge=0, description="Non-launch staff per launch crew")
+    maintenance_rate: float = Field(ge=0, description="Per year, against installed capital")
+    misc_operating_rate: float = Field(ge=0, description="Per year, against installed capital")
+    pad: Pad
+    facility: Facility
 
 
 class DebrisCollection(Frozen):
@@ -252,3 +272,187 @@ def find_gas(materials: dict[str, Material], name: str, role: str) -> Material:
             f"deployment needs in order to size the gas fill"
         )
     return material
+
+# --- Deployment operations ---------------------------------------------------------------
+
+
+def find_launches_per_pad(launch: Launch, design: BalloonDesign) -> float:
+    """Balloons one launchpad can release in a year."""
+    return launch.operating_hours_per_day * launch.operating_days_per_year / design.launch_time_hours
+
+
+def find_catches_per_drone(debris: DebrisCollection, launch: Launch) -> float:
+    """Balloons one flying drone can recover in a year.
+
+    A cycle is the round trip to the dump site plus the time on the ground
+    dropping the envelope and swapping batteries. Drones are taken to work the
+    same hours as the launchpads: balloons burst hours after release and drift
+    far, so landings really spread past the launch window, but modelling that
+    needs a dispersal model the rest of this method does not have.
+    """
+    cycle_seconds = 2.0 * debris.flight_distance / debris.flight_speed + debris.ground_cycle_seconds
+    operating_seconds = launch.operating_hours_per_day * launch.operating_days_per_year * 3600.0
+    return operating_seconds / cycle_seconds
+
+
+def count_facilities(
+    launchpads_required: pd.Series, pads_per_facility: int, deployed_latitudes: int
+) -> pd.Series:
+    """Facilities needed to hold the launchpads, one per latitude at minimum.
+
+    Balloons are launched where they are to be injected, so a program covering
+    several latitudes needs a facility at each however few pads it takes. The
+    floor applies only in years that deploy: before the first launch there is
+    nothing to hold.
+    """
+    by_capacity = determine_units_required(launchpads_required, pads_per_facility)
+    return by_capacity.clip(lower=deployed_latitudes).where(launchpads_required > 0, 0)
+
+
+def deployment_schedule(inputs: Inputs) -> pd.DataFrame:
+    """Build the year-by-year program table for meeting inputs.pattern.
+
+    Indexed by year, from the start of development through the last year of the
+    deployment pattern. All masses in kg, all costs in USD of the currency year.
+
+    Deployment:
+        demand                  kg of the deployed material, summed across latitudes
+        payload_gas_per_balloon kg carried by one balloon; fixed by the altitude
+        lift_gas_per_balloon    kg of lift gas in one balloon
+        balloons                launches in the year
+        capacity                kg deliverable by the active launchpads
+        utilization             demand / capacity; NaN before any pads exist
+
+    Infrastructure; * is entering / retiring / active:
+        launchpads_*            pads sized by launches per pad per year
+        facilities_*            facilities holding those pads, one per latitude at minimum
+        drones_*                drones owned, flying ones divided by availability
+        launchpads_required     pads demand calls for; below active where capacity is idle
+        facilities_required     facilities demand calls for, on the same basis
+        drones_flying           drones needed in the air
+
+    Labor:
+        launch_workers          launch crews plus support staff on active pads
+        drone_pilots            one per flying drone
+        ground_crew             servicing drones between flights
+        workers                 all three
+
+    Costs:
+        development_cost        NRE, spread over the years before the first order
+        capex                   pads, facilities and drones
+        maintenance_cost        against all capital in service, used or not
+        misc_operating_cost     utilities and consumables, against capital in use
+        balloon_cost            the balloons themselves, consumed one per launch
+        lift_gas_cost           lift gas, with lift_gas_kg the quantity
+        deployed_material_cost  the payload gas
+        labor_cost              currently just number of workers multiplied by a single cost per worker
+        opex                    maintenance_cost, misc_operating_cost, balloon_cost,
+                                lift_gas_cost, deployed_material_cost, and labor_cost
+        total_cost              development + capex + opex
+    """
+    method = BalloonMethod(**inputs.method)
+    options = BalloonOptions(**inputs.scenario.method_options)
+    design = find_design(method, options)
+    lift_gas = find_gas(inputs.materials, method.balloon.lift_gas, "lift gas")
+    payload_gas = find_gas(inputs.materials, inputs.scenario.deployed_material, "payload gas")
+
+    launch = method.launch
+    pad = launch.pad
+    facility = launch.facility
+    debris = method.debris_collection
+
+    # One balloon's fill is fixed by the injection altitude, so it is the same
+    # in every year of this case.
+    lift_per_balloon, payload_per_balloon = find_gas_fill(
+        design.mass, design.burst_diameter, inputs.scenario.altitude,
+        method.balloon.buoyancy_margin, lift_gas.molar_mass, payload_gas.molar_mass,
+    )
+
+    years = find_program_years(
+        inputs.pattern, facility.build_years, method.development.duration_years
+    )
+    demand = inputs.pattern.sum(axis=1).reindex(years, fill_value=0.0)
+    deployed_latitudes = int((inputs.pattern.sum(axis=0) > 0).sum())
+
+    balloons = determine_units_required(demand, payload_per_balloon)
+    launches_per_pad = find_launches_per_pad(launch, design)
+    launchpads_required = determine_units_required(balloons, launches_per_pad)
+    facilities_required = count_facilities(launchpads_required, facility.pads, deployed_latitudes)
+
+    catches_per_drone = find_catches_per_drone(debris, launch)
+    drones_flying = determine_units_required(balloons, catches_per_drone)
+    drones_required = determine_units_required(drones_flying, debris.drone_availability)
+
+    launchpads = schedule_assets(launchpads_required, pad.lifetime_years)
+    facilities = schedule_assets(facilities_required, facility.lifetime_years)
+    drones = schedule_assets(drones_required, debris.drone_lifetime_years)
+
+    schedule = pd.DataFrame(index=years)
+    schedule["demand"] = demand
+    schedule["payload_gas_per_balloon"] = payload_per_balloon
+    schedule["lift_gas_per_balloon"] = lift_per_balloon
+    schedule["balloons"] = balloons
+
+    for name, assets in (("launchpads", launchpads), ("facilities", facilities), ("drones", drones)):
+        schedule[f"{name}_entering"] = assets["entering_service"]
+        schedule[f"{name}_retiring"] = assets["retiring"]
+        schedule[f"{name}_active"] = assets["active"]
+    schedule["launchpads_required"] = launchpads_required
+    schedule["facilities_required"] = facilities_required
+    schedule["drones_flying"] = drones_flying
+
+    schedule["capacity"] = schedule["launchpads_active"] * launches_per_pad * payload_per_balloon
+    schedule["utilization"] = schedule["demand"] / schedule["capacity"]
+
+    operating_hours = launch.operating_hours_per_day * launch.operating_days_per_year
+    schedule["launch_workers"] = schedule["launchpads_active"] * (
+        design.launch_crew + launch.support_staff_per_crew
+    )
+    schedule["drone_pilots"] = drones_flying
+    schedule["ground_crew"] = np.ceil(
+        balloons * (debris.ground_cycle_seconds / 3600.0) * debris.ground_crew_overhead
+        / operating_hours
+    ).astype(int)
+    schedule["workers"] = (
+        schedule["launch_workers"] + schedule["drone_pilots"] + schedule["ground_crew"]
+    )
+
+    schedule["lift_gas_kg"] = balloons * lift_per_balloon
+
+    schedule["development_cost"] = spread_development(
+        years, method.development.NRE, method.development.duration_years
+    )
+    schedule["capex"] = (
+        spread_capital(launchpads["entering_service"], pad.cost, facility.build_years)
+        + spread_capital(facilities["entering_service"], facility.cost, facility.build_years)
+        + spread_capital(drones["entering_service"], debris.drone_cost, 0)
+    )
+
+    # Maintenance keeps an asset from decaying whether or not it is used, so it
+    # falls on everything in service. Utilities and consumables only accrue
+    # where something is happening, so they fall on what demand actually calls
+    # for -- which is less than what is in service wherever a fall in demand has
+    # left capacity idle. A facility counts as in use as a whole unit, so one
+    # running at a tenth of its pad capacity still draws full utilities.
+    installed_capital = (
+        schedule["launchpads_active"] * pad.cost + schedule["facilities_active"] * facility.cost
+    )
+    operating_capital = (
+        schedule["launchpads_required"] * pad.cost
+        + schedule["facilities_required"] * facility.cost
+    )
+    schedule["maintenance_cost"] = installed_capital * launch.maintenance_rate
+    schedule["misc_operating_cost"] = operating_capital * launch.misc_operating_rate
+    schedule["balloon_cost"] = balloons * design.cost
+    schedule["lift_gas_cost"] = schedule["lift_gas_kg"] * lift_gas.cost
+    schedule["deployed_material_cost"] = demand * payload_gas.cost
+    schedule["labor_cost"] = schedule["workers"] * method.labor.salary
+
+    schedule["opex"] = schedule[[
+        "maintenance_cost", "misc_operating_cost", "balloon_cost",
+        "lift_gas_cost", "deployed_material_cost", "labor_cost",
+    ]].sum(axis=1)
+    schedule["total_cost"] = (
+        schedule["development_cost"] + schedule["capex"] + schedule["opex"]
+    )
+    return schedule

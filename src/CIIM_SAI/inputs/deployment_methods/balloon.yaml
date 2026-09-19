@@ -40,15 +40,21 @@ balloon:
         assumes economies of scale at deployment volumes.
 
 launch:
-  pads_per_facility: 10
-  pad_cost: 1.0e+6
-  facility_cost: 5.0e+6
-  facility_build_years: 1
-  maintenance_rate: 0.03           # per year, against installed capital
-  misc_operating_rate: 0.05        # per year: utilities, gas handling, consumables
   operating_hours_per_day: 8       # daylight only, for safety
   operating_days_per_year: 300     # the rest lost to weather
   support_staff_per_crew: 1
+  maintenance_rate: 0.03           # per year, against installed capital
+  misc_operating_rate: 0.05        # per year: utilities, gas handling, consumables
+
+  pad:
+    cost: 1.0e+6
+    lifetime_years: 50
+
+  facility:
+    pads: 100
+    cost: 5.0e+7
+    build_years: 1
+    lifetime_years: 50
 
 debris_collection:
   drone_cost: 1.0e+4
@@ -68,8 +74,8 @@ sweepable:
   - balloon.buoyancy_margin
   - balloon.designs.weather_1kg.cost
   - balloon.designs.weather_4kg.cost
-  - launch.pad_cost
-  - launch.facility_cost
+  - launch.pad.cost
+  - launch.facility.cost
   - launch.operating_days_per_year
   - launch.maintenance_rate
   - launch.misc_operating_rate
