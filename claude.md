@@ -12,9 +12,11 @@ readable and auditable by one person, not a production system.
 
 - **Functions are verbs, variables are nouns** (`schedule_assets` the function,
   `assets` the value). Not style — same-name collisions have bitten this codebase.
-- **SI base units everywhere**: meters, kilograms, USD. The single exception is
-  time, which is in years. Deployment pattern CSVs are in Tg/year purely as a
-  file-format convention and are converted to kg at load.
+- **SI base units everywhere**: meters, kilograms, USD — unless the variable
+  name says otherwise, which is how hours, seconds and months appear
+  (`launch_time_hours`, `ground_cycle_seconds`). Unsuffixed time is in years.
+  Deployment pattern CSVs are in Tg/year purely as a file-format convention and
+  are converted to kg at load.
 - **YAML exponents need a signed exponent**: `1.0e+9` parses as a float, `1e9`
   parses as a string.
 - Validation lives in the schemas, not in the calculations. If a value could be
@@ -57,17 +59,20 @@ compute in JavaScript what Python can compute.
   the top level.
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by
   importing `deploy_<method>` dynamically — adding a method requires no edit here.
-- A deployment method module's entire contract is `deployment_schedule(inputs)
-  -> DataFrame`, indexed by year. Everything else in such a module is private to
-  it, including the schemas it owns: the root class validating `<name>.yaml` is
-  named `<Name>Method`, and the class validating the scenario's `method_options`
-  is `<Name>Options`. Checks that span two input files — a design the scenario
+- A deployment method module's contract is one required function,
+  `deployment_schedule(inputs) -> DataFrame` indexed by year, and two optional
+  ones a front end calls by name when they exist: `option_choices(method_yaml)
+  -> {option: [values]}`, the `method_options` this method offers and the values
+  each may take, and `deployable_materials(material_yaml) -> [name]`, the
+  materials out of material.yaml it can actually deploy. Both take raw file
+  dicts rather than `Inputs`, because the caller is a form being drawn rather
+  than a run being set up, and a method that defines neither is simply offered
+  everything. Everything else in such a module is private to it, including the
+  schemas it owns: the root class validating `<name>.yaml` is named
+  `<Name>Method`, and the class validating the scenario's `method_options` is
+  `<Name>Options`. Checks that span two input files — a design the scenario
   names against the designs the method file defines — live in the method module
   as small `find_*` functions, since neither schema can see the other's file.
-  Every method must produce `demand`, `capacity`, `utilization`,
-  `development_cost`, `capex`, `opex` and `total_cost`; those are what the front
-  ends and the charts may assume. Every other column is the method's own, so
-  anything comparing methods works from that set alone.
 - Every method's schedule must carry `demand`, `capacity`, `utilization`,
   `development_cost`, `capex`, `opex` and `total_cost`, because the front ends
   compare across methods on those. Everything else is the method's own: the

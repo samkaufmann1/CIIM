@@ -60,8 +60,11 @@ time, and operating costs for what is in service. A scenario may sweep any
 numeric parameter over a range; results are stacked into a single table, one row
 per (case, year).
 
-Conventions: SI base units throughout (altitude in meters, mass in kg), with one
-exception — time is in years. Costs are real dollars of the year declared in
+Conventions: SI base units (altitude in meters, mass in kg, cost in USD) unless
+the variable's own name says otherwise — `launch_time_hours`,
+`ground_cycle_seconds`, `reference_lifetime_months`. Time is the one quantity
+that varies: it is in years wherever the name does not say, which covers every
+lifetime, lead time and duration. Costs are real dollars of the year declared in
 `finance.yaml`; the model performs no deflation, so that field states what the
 input figures are assumed to be, it does not convert them. Deployment pattern
 CSVs are in Tg/year and converted to kg on load.
@@ -74,6 +77,12 @@ choices:
 - **No discounting.** All figures are undiscounted annual flows.
 - **No price-level conversion.** See `finance.yaml` above.
 - **No production limits.** Any number of units can be ordered in a year.
+- **No balloon manufacturing.** The balloon model buys balloons at a unit price and says
+  nothing about who makes them. Deployment at the scale modeled here would
+  consume balloons at a multiple of current world production, and the assumed
+  price already presumes a manufacturing base that does not exist. Since the
+  balloons are the largest single line in the cost, this is the largest gap in
+  the model.
 - **Homogeneous assets.** A method may offer several designs, but one run flies
   one of them: no mixed fleets, no learning curve, no mid-life refits.
 - **No early retirement.** An asset serves exactly its lifetime, even if demand
@@ -170,8 +179,14 @@ docs/                  the browser version (see above)
 Adding a deployment method means adding two files: an input file
 `inputs/deployment_methods/<name>.yaml` and a module
 `deployment_methods/deploy_<name>.py` exposing `deployment_schedule(inputs)`.
-The method named in `scenario.yaml` is dispatched to dynamically; there is no
-registry to update.
+
+A method may also define `option_choices(method_yaml)`, returning the choices
+its `method_options` offers, and `deployable_materials(material_yaml)`,
+returning the subset of materials it can carry. Neither is needed to run the
+model; they are what lets the browser GUI draw the right dropdowns without
+knowing anything about the method. The method named in `scenario.yaml` is
+dispatched to dynamically, and both optional functions are looked up by name, so
+there is no registry to update anywhere.
 
 ## License
 

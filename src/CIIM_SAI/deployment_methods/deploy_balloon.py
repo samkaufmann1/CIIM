@@ -284,6 +284,24 @@ def option_choices(method: dict) -> dict[str, list[str]]:
     """
     return {"design": sorted(BalloonMethod(**method).balloon.designs)}
 
+def deployable_materials(materials: dict) -> list[str]:
+    """Materials this method can deploy, out of everything material.yaml defines.
+
+    A balloon carries its payload as a gas and bursts to release it, so it can
+    deploy only a material with a molar_mass to size the fill with, and only one
+    with a forcing block is an SAI agent rather than plumbing -- which is what
+    rules out the lift gas itself. Takes the raw file rather than Materials
+    because the caller is a form being drawn, which has material.yaml in hand
+    but no Inputs.
+
+    Advisory, not a check: find_gas and find_gas_fill still reject a bad choice
+    at run time, whatever a front end chose to offer.
+    """
+    return sorted(
+        name for name, values in materials.items()
+        if values.get("molar_mass") is not None and values.get("forcing") is not None
+    )
+
 # --- Deployment operations ---------------------------------------------------------------
 
 

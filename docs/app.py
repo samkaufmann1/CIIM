@@ -245,6 +245,14 @@ def find_option_choices(method_name: str, method_data: dict) -> dict[str, list[s
     choices = getattr(get_method(method_name), "option_choices", None)
     return choices(method_data) if choices else {}
 
+def find_deployable_materials(method_name: str, materials: dict) -> list[str]:
+    """The materials the chosen method can deploy, narrowed from material.yaml.
+
+    The same optional-hook pattern as find_option_choices: a method that can
+    deploy anything defines nothing and gets everything the file offers.
+    """
+    narrow = getattr(get_method(method_name), "deployable_materials", None)
+    return narrow(materials) if narrow else sorted(materials)
 
 def scenario_form_init() -> str:
     """Current scenario values, dropdown options, and sweepable parameters."""
@@ -260,7 +268,7 @@ def scenario_form_init() -> str:
                  + pop_sweepable("material", material)
                  + pop_sweepable("method", method))
 
-        # A scenario-namespace path is only worth offering if this scenario actually
+    # A scenario-namespace path is only worth offering if this scenario actually
     # has that field set. In override mode latitude is absent, so sweeping it
     # would fail -- correctly, but only after the user had filled in a start,
     # stop and step. Phrased as "the field is set" rather than naming latitude,
@@ -268,6 +276,12 @@ def scenario_form_init() -> str:
     sweepable = [p for p in sweepable
                  if not p.startswith("scenario.")
                  or scenario.get(p.split(".", 1)[1]) is not None]
+
+    # A material the previous method could deploy may be one this method cannot 
+    # carry at all, so the saved choice is kept only when this method offers it
+    deployable = find_deployable_materials(scenario["deployment_method"], material)
+    if deployable and scenario.get("deployed_material") not in deployable:
+        scenario["deployed_material"] = deployable[0]
 
     # Method options belong to the method, so a scenario carried over from
     # another one holds values the new method has never heard of. Each option is
@@ -286,7 +300,7 @@ def scenario_form_init() -> str:
         "option_choices": option_choices,
         "method_options": method_options,
         "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
-        "materials": sorted(material),
+        "materials": deployable,
         "sweepable": sweepable,
         # The form seeds these when the mode radio flips to a mode whose file
         # and latitude are not yet set.
