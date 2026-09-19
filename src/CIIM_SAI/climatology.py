@@ -68,11 +68,11 @@ def find_atmospheric_temperature_and_pressure(altitude: float) -> tuple[float, f
     if lapse_rate == 0.0:
         pressure = base_pressure * math.exp(
             -GRAVITY * MOLAR_MASS_AIR * (altitude - base_altitude)
-            / (GAS_CONSTANT * base_temperature)
+            / (IDEAL_GAS_CONSTANT * base_temperature)
         )
     else:
         pressure = base_pressure * (base_temperature / temperature) ** (
-            GRAVITY * MOLAR_MASS_AIR / (GAS_CONSTANT * lapse_rate)
+            GRAVITY * MOLAR_MASS_AIR / (IDEAL_GAS_CONSTANT * lapse_rate)
         )
     return temperature, pressure
 

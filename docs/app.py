@@ -16,7 +16,7 @@ separate JavaScript calls that make up one run-then-render-then-export cycle.
 """
 
 from CIIM_SAI.load_inputs import load_inputs, pop_sweepable, INPUTS_DIR
-from CIIM_SAI.run import run
+from CIIM_SAI.run import run, get_method
 from CIIM_SAI.climatology import determine_cooling
 import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
@@ -235,6 +235,17 @@ def component_chart() -> str:
     return fig.to_json()
 
 
+def find_option_choices(method_name: str, method_data: dict) -> dict[str, list[str]]:
+    """The method_options the chosen method offers, and the values each allows.
+
+    A method module may define option_choices(method_yaml); one with nothing to
+    choose does not, and gets an empty dict here. Nothing in this file names a
+    particular method, so adding one needs no edit to the GUI.
+    """
+    choices = getattr(get_method(method_name), "option_choices", None)
+    return choices(method_data) if choices else {}
+
+
 def scenario_form_init() -> str:
     """Current scenario values, dropdown options, and sweepable parameters."""
     root = Path("/ciim_inputs")
@@ -258,8 +269,22 @@ def scenario_form_init() -> str:
                  if not p.startswith("scenario.")
                  or scenario.get(p.split(".", 1)[1]) is not None]
 
+    # Method options belong to the method, so a scenario carried over from
+    # another one holds values the new method has never heard of. Each option is
+    # seeded from the choices the current method offers, keeping the saved value
+    # only when it is one of them -- the same write-then-repopulate the mode
+    # radio uses, so the form can never hold an option the method cannot honor.
+    option_choices = find_option_choices(scenario["deployment_method"], method)
+    saved = scenario.get("method_options") or {}
+    method_options = {
+        name: (saved[name] if saved.get(name) in values else values[0])
+        for name, values in option_choices.items()
+    }
+
     return json.dumps({
         "scenario": scenario,
+        "option_choices": option_choices,
+        "method_options": method_options,
         "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
         "materials": sorted(material),
         "sweepable": sweepable,
@@ -280,6 +305,8 @@ def write_scenario(scenario_json: str) -> None:
         data["sweepable"] = existing["sweepable"]     # a declaration, not a form field
     if not data.get("sweep"):
         data.pop("sweep", None)
+    if not data.get("method_options"):
+        data.pop("method_options", None)   # a method with nothing to choose
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 

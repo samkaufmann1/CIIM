@@ -23,7 +23,7 @@ import pandas as pd
 from pydantic import Field, model_validator
 
 from CIIM_SAI.climatology import (
-    GAS_CONSTANT,
+    IDEAL_GAS_CONSTANT,
     MOLAR_MASS_AIR,
     find_atmospheric_temperature_and_pressure,
 )
@@ -116,7 +116,7 @@ def find_gas_fill(
     temperature, pressure = find_atmospheric_temperature_and_pressure(altitude)
 
     volume = 4.0 / 3.0 * math.pi * (burst_diameter / 2.0) ** 3
-    moles_total = pressure * volume / (GAS_CONSTANT * temperature)
+    moles_total = pressure * volume / (IDEAL_GAS_CONSTANT * temperature)
     displaced_air_mass = moles_total * MOLAR_MASS_AIR
 
     moles_lift = (
@@ -272,6 +272,17 @@ def find_gas(materials: dict[str, Material], name: str, role: str) -> Material:
             f"deployment needs in order to size the gas fill"
         )
     return material
+
+
+def option_choices(method: dict) -> dict[str, list[str]]:
+    """The method_options a front end may offer, and the values each may take.
+
+    The optional half of the method contract: a front end asks for this by name
+    and a method with nothing to choose simply does not define it. Takes the raw
+    YAML rather than a BalloonMethod because the caller is a form being drawn,
+    which has the file in hand but no Inputs.
+    """
+    return {"design": sorted(BalloonMethod(**method).balloon.designs)}
 
 # --- Deployment operations ---------------------------------------------------------------
 

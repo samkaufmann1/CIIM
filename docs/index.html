@@ -96,7 +96,13 @@
     <strong>Outputs:</strong> Costs, operational requirements, and procurement schedule.
   </p>
   <p>
-    Currently only a fictional "teleporter" deployment method is implemented.
+    Two deployment methods are implemented. Balloons are the real one:
+    disposable latex weather balloons filled with hydrogen and a payload gas,
+    launched from facilities of launchpads and bursting at the injection
+    altitude. Treat those figures as preliminary — the largest single cost is
+    the balloons themselves, at an assumed unit price well below what small
+    quantities retail for today. The "teleporter" is fictional, kept because a
+    deliberately simple method is useful for exercising the model.
     Source code can be found at
     <a href="https://github.com/samkaufmann1/CIIM">github.com/samkaufmann1/CIIM</a>.
   </p>
@@ -106,6 +112,7 @@
     <label>deployment method
       <select id="f-method"></select>
     </label>
+    <div id="method-options"></div>
     <label>deployed material
       <select id="f-material"></select>
     </label>
@@ -302,6 +309,25 @@
       fill("f-material", init.materials, init.scenario.deployed_material);
       document.getElementById("f-altitude").value = init.scenario.altitude;
 
+      // One select per choice the method offers. What those choices are comes
+      // from the method, not from this page, so a method with nothing to choose
+      // renders nothing and adding a method needs no edit here. Python has
+      // already seeded the selected value, dropping anything a previous method
+      // left behind.
+      const optionsBlock = document.getElementById("method-options");
+      optionsBlock.innerHTML = "";
+      for (const [name, values] of Object.entries(init.option_choices)) {
+        const label = document.createElement("label");
+        label.textContent = name + " ";
+        const select = document.createElement("select");
+        select.dataset.option = name;
+        for (const v of values) {
+          select.add(new Option(v, v, false, v === init.method_options[name]));
+        }
+        label.appendChild(select);
+        optionsBlock.appendChild(label);
+      }
+
       // Both groups are filled whichever one is showing: from the file where it
       // has a value, from the first available otherwise. The hidden group then
       // always holds something valid, so switching mode is write-then-repopulate
@@ -335,10 +361,16 @@
 
     function gatherScenario() {
       const num = (id) => Number(document.getElementById(id).value);
+      const method_options = {};
+      for (const select of document.querySelectorAll("#method-options select")) {
+        method_options[select.dataset.option] = select.value;
+      }
+
       const scenario = {
         deployment_method: document.getElementById("f-method").value,
         deployed_material: document.getElementById("f-material").value,
         altitude: num("f-altitude"),
+        method_options: method_options,
       };
 
       // Exactly one of these, and latitude only alongside the second: any other
@@ -529,11 +561,12 @@
     document.getElementById("download-pattern").addEventListener("click", () => {
       downloadText(patternFile, pyodide.runPython(`pattern_csv(${JSON.stringify(patternFile)})`));
     });
-    
     document.getElementById("add-sweep").addEventListener("click", () => addSweepRow());
-
-
     document.getElementById("f-method").addEventListener("change", () => {
+      // The selects showing are the old method's, and mean nothing to the new
+      // one. Clearing them first is what stops gatherScenario writing a design
+      // the new method has never heard of.
+      document.getElementById("method-options").innerHTML = "";
       pyodide.runPython(`write_scenario(${JSON.stringify(JSON.stringify(gatherScenario()))})`);
       populateScenarioForm();      // the new method declares a different sweepable set
       renderInputsForms();
