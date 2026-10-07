@@ -72,8 +72,7 @@ sweepable:
   - development.NRE
   - development.duration_years
   - balloon.buoyancy_margin
-  - balloon.designs.weather_1kg.cost
-  - balloon.designs.weather_4kg.cost
+  - balloon.designs.*.cost
   - launch.pad.cost
   - launch.facility.cost
   - launch.operating_days_per_year

@@ -44,7 +44,8 @@ compute in JavaScript what Python can compute.
   exactly as it would a hand-written CSV — nothing downstream, `run.py` or a
   method module, can tell which mode produced the pattern.
 - Each input file declares which of its own variables may be swept, in a
-  top-level `sweepable:` list of paths relative to that file. `load_inputs`
+  top-level `sweepable:` list of paths relative to that file. Some sweepable
+  paths may include *, indicating an arbitrary intermediate path. `load_inputs`
   strips those declarations before any schema sees the data — every schema
   forbids unknown keys — and namespaces them by file, so a sweep block names
   `scenario.altitude` or `method.unit.cost`. Declaring per file is what keeps

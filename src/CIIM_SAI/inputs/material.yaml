@@ -42,6 +42,11 @@ H2S:
       against 50.0% of SO2), and the reference lifetime is SO2's unchanged.
 
 
+Jet-A:
+  cost: 0.80
+  source: >-
+    Placeholder. Roughly $2.40 per US gallon at a density of 0.804 kg/L.
+
 sweepable:
   - SO2.cost
   - SO2.forcing.per_Tg_per_year
@@ -51,3 +56,5 @@ sweepable:
   - H2S.cost
   - H2S.forcing.per_Tg_per_year
   - H2S.forcing.reference_lifetime_months
+  - Jet-A.cost
+  

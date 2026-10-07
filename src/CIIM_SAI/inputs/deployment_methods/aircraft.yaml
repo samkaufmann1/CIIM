@@ -1,0 +1,180 @@
+# Aircraft deployment: purpose-built lofters flying to the injection altitude and
+# dispersing their payload during cruise.
+#
+# Units are SI base units or USD unless noted otherwise in the variable name.
+# Mass rates are kg/s; mission profile segment times are hours.
+#
+# EVERY NUMBER BELOW IS A PLACEHOLDER. The mission profiles in particular are
+# invented to be internally consistent, not drawn from any aircraft that exists
+# or has been designed. They need replacing with real performance data before any
+# result from this method means anything.
+
+aircraft:
+  fuel: Jet-A
+
+  designs:
+    fake_lofter_crewed:
+      unit_cost: 1.1e+8
+      lead_time_years: 3
+      lifetime_years: 20
+      lifetime_cycles: 3.0e+4      # the binding limit when the fleet flies hard
+      availability: 0.70           # fraction of the owned fleet not in maintenance
+      maintenance_rate: 0.10       # per year, against unit cost
+      max_payload: 2.5e+4
+      operating_empty_weight: 5.5e+4
+      ground_cycle_hours: 1.5      # taxi, check, crew change, reload and refuel
+      aircrew_size: 2              # people per crew; 0 means uncrewed
+      payload_emission_rate: 3.0   # kg/s the dispersal system can put out in cruise
+
+      development:
+        NRE: 2.0e+9
+        duration_years: 7
+
+      # One profile per altitude the aircraft has been flown or modelled at.
+      # There is no interpolation between them: an altitude with no profile is an
+      # error, because a mission profile is measured data, not a curve fit.
+      # Cruise carries only a burn rate -- its duration, fuel and payload are
+      # solved from the weight left over once the other three segments are paid
+      # for. Reserve has no duration because it is not flown; only its weight
+      # matters, since it is carried the whole way.
+      mission_profiles:
+        17000:
+          takeoff_weight: 1.00e+5
+          climb:   {duration_hours: 0.60, fuel: 6.0e+3}
+          cruise:  {fuel_burn_rate: 1.10}
+          descent: {duration_hours: 0.50, fuel: 1.5e+3}
+          reserve: {fuel: 5.0e+3}
+        19000:
+          takeoff_weight: 9.75e+4
+          climb:   {duration_hours: 0.70, fuel: 7.0e+3}
+          cruise:  {fuel_burn_rate: 1.05}
+          descent: {duration_hours: 0.55, fuel: 1.55e+3}
+          reserve: {fuel: 5.0e+3}
+        21000:
+          takeoff_weight: 9.50e+4
+          climb:   {duration_hours: 0.80, fuel: 8.0e+3}
+          cruise:  {fuel_burn_rate: 1.00}
+          descent: {duration_hours: 0.60, fuel: 1.6e+3}
+          reserve: {fuel: 5.0e+3}
+        23000:
+          takeoff_weight: 9.25e+4
+          climb:   {duration_hours: 0.90, fuel: 9.0e+3}
+          cruise:  {fuel_burn_rate: 0.975}
+          descent: {duration_hours: 0.65, fuel: 1.7e+3}
+          reserve: {fuel: 5.0e+3}
+        25000:
+          takeoff_weight: 9.00e+4
+          climb:   {duration_hours: 1.00, fuel: 1.0e+4}
+          cruise:  {fuel_burn_rate: 0.95}
+          descent: {duration_hours: 0.70, fuel: 1.8e+3}
+          reserve: {fuel: 5.0e+3}
+
+      source: >-
+        Placeholder. Loosely scaled on the business-jet-derived lofter concepts
+        in the SAI literature, but no figure here traces to a published design.
+
+    fake_lofter_uncrewed:
+      unit_cost: 4.0e+7
+      lead_time_years: 3
+      lifetime_years: 20
+      lifetime_cycles: 3.0e+4
+      availability: 0.75
+      maintenance_rate: 0.12
+      max_payload: 8.0e+3
+      operating_empty_weight: 2.6e+4
+      ground_cycle_hours: 1.0
+      aircrew_size: 0
+      payload_emission_rate: 2.0
+
+      development:
+        NRE: 1.2e+9
+        duration_years: 7
+
+      mission_profiles:
+        17000:
+          takeoff_weight: 3.80e+4
+          climb:   {duration_hours: 0.50, fuel: 2.2e+3}
+          cruise:  {fuel_burn_rate: 0.42}
+          descent: {duration_hours: 0.40, fuel: 6.0e+2}
+          reserve: {fuel: 1.8e+3}
+        19000:
+          takeoff_weight: 3.75e+4
+          climb:   {duration_hours: 0.55, fuel: 2.5e+3}
+          cruise:  {fuel_burn_rate: 0.40}
+          descent: {duration_hours: 0.42, fuel: 6.2e+2}
+          reserve: {fuel: 1.8e+3}
+        21000:
+          takeoff_weight: 3.60e+4
+          climb:   {duration_hours: 0.65, fuel: 2.9e+3}
+          cruise:  {fuel_burn_rate: 0.38}
+          descent: {duration_hours: 0.45, fuel: 6.5e+2}
+          reserve: {fuel: 1.8e+3}
+        23000:
+          takeoff_weight: 3.50e+4
+          climb:   {duration_hours: 0.75, fuel: 3.2e+3}
+          cruise:  {fuel_burn_rate: 0.36}
+          descent: {duration_hours: 0.48, fuel: 6.7e+2}
+          reserve: {fuel: 1.8e+3}
+        25000:
+          takeoff_weight: 3.40e+4
+          climb:   {duration_hours: 0.85, fuel: 3.6e+3}
+          cruise:  {fuel_burn_rate: 0.35}
+          descent: {duration_hours: 0.50, fuel: 7.0e+2}
+          reserve: {fuel: 1.8e+3}
+
+      source: Placeholder. A notional uncrewed lofter, roughly a third the size of the fake_lofter_crewed.
+
+# Concept of operations. Stated rather than assumed, because it is the main
+# reason this method's numbers are not directly comparable with the balloon's,
+# which flies 8 hours a day for 300 days.
+operations:
+  operating_hours_per_day: 24
+  operating_days_per_year: 365.25
+  excess_capacity: 0.15            # fleet bought above what demand strictly requires
+
+labor:
+  shift_hours: 8
+  weeks_per_year: 45
+  overhead_rate: 0.50              # on every salary below
+
+  aircrew:
+    shifts_per_week: 4
+    salary: 1.5e+5
+
+  ground_crew:
+    shifts_per_week: 5
+    salary: 7.5e+4
+    team_size: 4                   # people servicing one aircraft between cycles
+    ground_cycle_share: 0.50       # fraction of the aircraft's ground cycle they work
+    extra_hours_per_cycle: 0.25
+
+  support:
+    ratio: 0.33                    # heads per aircrew + ground crew head
+    salary: 7.5e+4
+
+basing:
+  cost_per_annual_movement: 2.9e+4 # USD of capital per movement per year of capacity
+  movements_per_flight: 2          # a takeoff and a landing
+  annual_movements_per_unit: 5.0e+4       # capacity of one base unit; sets basing's lumpiness
+  build_years: 5
+  lifetime_years: 70
+  maintenance_rate: 0.03           # per year, against installed capital
+  source: >-
+    Smith 2024, doi:10.1029/2024EF004797, average capital cost per annual aircraft
+    movement. The paper's figure is used here without its own distribution across
+    sites: this model has one pooled basing capacity, not a set of located bases.
+
+sweepable:
+  - operations.excess_capacity
+  - basing.cost_per_annual_movement
+  - basing.annual_movements_per_unit
+  - labor.overhead_rate
+  - labor.aircrew.salary
+  - labor.ground_crew.salary
+  - aircraft.designs.*.unit_cost
+  - aircraft.designs.*.payload_emission_rate
+  - aircraft.designs.*.availability
+  - aircraft.designs.*.maintenance_rate
+  - aircraft.designs.*.lifetime_years
+  - aircraft.designs.*.development.NRE
+  - aircraft.designs.*.development.duration_years

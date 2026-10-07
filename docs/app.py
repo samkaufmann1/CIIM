@@ -15,7 +15,7 @@ Module-level `results`, `sweep_params`, `inputs`, and `currency_year` persist be
 separate JavaScript calls that make up one run-then-render-then-export cycle.
 """
 
-from CIIM_SAI.load_inputs import load_inputs, pop_sweepable, INPUTS_DIR
+from CIIM_SAI.load_inputs import load_inputs, pop_sweepable, set_at, INPUTS_DIR
 from CIIM_SAI.run import run, get_method
 from CIIM_SAI.climatology import determine_cooling
 import plotly.graph_objects as go
@@ -382,11 +382,7 @@ def write_overrides(overrides_json: str) -> None:
         path = root / rel
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         for dotted, value in fields.items():
-            node = data
-            *parents, leaf = dotted.split(".")
-            for key in parents:
-                node = node[key]
-            node[leaf] = value
+            set_at(data, dotted, value)   # the model's own walker: it knows numeric keys
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
 

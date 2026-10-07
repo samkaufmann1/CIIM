@@ -454,6 +454,24 @@ def load_inputs(inputs_dir: Path = INPUTS_DIR) -> Inputs:
     )
 
 
+def resolve_key(node: dict[str, Any], key: str) -> Any:
+    """`key` as the mapping actually holds it.
+
+    A dotted path is a string throughout, but a YAML mapping keyed by number
+    holds integers -- the mission profiles' altitudes, climate.yaml's latitudes
+    -- so "21000" has to find 21000. Falls back to the string when neither form
+    is present, leaving the caller to add a new key or fail on a missing one
+    exactly as it did before.
+    """
+    if key in node:
+        return key
+    try:
+        numeric = int(key)
+    except ValueError:
+        return key
+    return numeric if numeric in node else key
+
+
 def set_at(data: dict[str, Any], path: str, value: Any) -> None:
     """Set the value at dotted `path` inside a nested dict, in place.
 
@@ -465,6 +483,8 @@ def set_at(data: dict[str, Any], path: str, value: Any) -> None:
     reaches into data["forcing"] and sets its "per_Tg_per_year" key, leaving "cost"
     and "source" untouched.
 
+    Each key is resolved through resolve_key, so a path may cross a numerically keyed mapping on its way down.
+    
     Nothing is copied first: both callers already hold a dict nobody else has
     -- one from model_dump(), one freshly re-read from file -- so writing into
     it cannot affect anything outside.
@@ -476,11 +496,11 @@ def set_at(data: dict[str, Any], path: str, value: Any) -> None:
     # `node` stays `data` itself.
     node = data
     for key in keys[:-1]:         # every key except the last one
-        node = node[key]
+        node = node[resolve_key(node, key)]
 
     # `node` is a dict inside `data`, not a copy of one, so assigning through
     # it changes `data`. That is why this function returns nothing.
-    node[keys[-1]] = value        # the last key
+    node[resolve_key(node, keys[-1])] = value        # the last key
 
 
 
@@ -555,16 +575,61 @@ def with_overrides(base: Inputs, overrides: dict[str, Any]) -> Inputs:
                    method=method, pattern=pattern)
 
 
+def expand_sweepable(path: str, data: dict[str, Any], namespace: str) -> list[str]:
+    """One sweepable declaration as concrete paths, expanding `*` against the data.
+
+    A `*` component stands for every key at that level, so `designs.*.cost` names
+    the cost of every design the file happens to define. Without it a file lists
+    one line per design per field, which is both overly verbose and how one design ends
+    up quietly declaring something its sibling does not.
+
+    Expansion happens here rather than at the point of use so that nothing
+    downstream ever sees a `*`: the sweep check, `set_at` and the GUI's dropdown
+    all go on handling concrete paths only.
+    """
+    head, star, tail = path.partition(".*.")
+    if not star:
+        if "*" in path:
+            raise ValueError(
+                f"the {namespace} file declares {path!r} sweepable: `*` has to stand "
+                f"for a whole path component with fields beneath it, as in "
+                f"`designs.*.cost`"
+            )
+        return [path]
+
+    node = data
+    for key in head.split("."):
+        if not isinstance(node, dict) or key not in node:
+            raise ValueError(
+                f"the {namespace} file declares {path!r} sweepable, but it has no "
+                f"{head!r} to expand `*` over"
+            )
+        node = node[key]
+    if not isinstance(node, dict):
+        raise ValueError(
+            f"the {namespace} file declares {path!r} sweepable, but {head!r} is a "
+            f"{type(node).__name__}, not a mapping of names"
+        )
+    return [expanded
+            for name in node
+            for expanded in expand_sweepable(f"{head}.{name}.{tail}", data, namespace)]
+
+
 def pop_sweepable(namespace: str, data: dict[str, Any]) -> list[str]:
     """Remove `data`'s `sweepable:` list and return its paths, namespaced.
 
     Removes rather than reads: the schemas that validate these files forbid
     unknown keys, so `sweepable` has to be gone before they see the data.
     Paths are relative to their own file going in and namespaced coming out,
-    so `unit.cost` in teleporter.yaml becomes `method.unit.cost`.
+    so `unit.cost` in teleporter.yaml becomes `method.unit.cost`. A path may
+    contain `*`, which expand_sweepable turns into one path per name at that
+    level -- popping first is what keeps `*` from matching `sweepable` itself.
 
     Called by load_inputs to check the sweep block, by with_overrides to strip
     the key from a method file it has just re-read, and by docs/app.py to fill
     the GUI's parameter list.
     """
-    return [f"{namespace}.{name}" for name in data.pop("sweepable", [])]
+    declared = data.pop("sweepable", [])
+    return [f"{namespace}.{path}"
+            for declaration in declared
+            for path in expand_sweepable(declaration, data, namespace)]
