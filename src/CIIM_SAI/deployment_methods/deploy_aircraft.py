@@ -11,12 +11,11 @@ everything arrives via Inputs.
 from __future__ import annotations
 
 import warnings
-
-from pydantic import Field, model_validator
-
 from dataclasses import dataclass
+from math import floor
 
 import pandas as pd
+from pydantic import Field, model_validator
 
 from CIIM_SAI.load_inputs import Frozen, Inputs, Material
 from CIIM_SAI.deployment_methods.scheduling import determine_units_required
@@ -231,9 +230,9 @@ class AircraftOptions(Frozen):
 
     design: str = Field(description="A key under aircraft.designs in aircraft.yaml")
     payload_emission_rate: float | None = Field(
-    default=None,
-    gt=0,
-    description="kg/s; omitted means use the selected aircraft design's rate",
+        default=None,
+        gt=0,
+        description="kg/s; omitted means use the selected aircraft design's rate",
     )
 
 
@@ -337,6 +336,7 @@ def calculate_mission(
     design: AircraftDesign,
     profile: MissionProfile,
     emission_rate: float,
+    shift_hours: float,
 ) -> Mission:
     """Solve the cruise weight budget and derive full-flight requirements.
 
@@ -366,11 +366,14 @@ def calculate_mission(
 
     Reserve fuel is carried throughout but is not normally burned.
 
-    Crew duty includes the full ground cycle. Crewed duties up to eight
-    hours use one crew; duties above eight and up to sixteen use two crews
+        Crew duty includes the full ground cycle. Duties up to one configured
+    shift use one crew; duties above one and up to two shifts use two crews
     and give a warning. Longer crewed duties are rejected. These thresholds
     are modeling assumptions. Double-crewing does not change the modeled
-    aircraft weight or performance. Uncrewed missions have no duty cycle length limit.
+    aircraft weight or performance. Uncrewed missions have no duty limit.
+
+    shift_hours comes from the validated labor inputs and must match the
+    shift length used when calculating annual aircrew requirements.
     """
     useful_weight = (
         profile.takeoff_weight
@@ -398,25 +401,26 @@ def calculate_mission(
 
     crews_per_flight = 0
     if design.aircrew_size > 0:
-        if cycle_hours > 16:
+        if cycle_hours > 2 * shift_hours:
             raise ValueError(
-                "This is a crewed duty cycle lasting more than 16 hours, "
-                "meaning that it would have to be triple-crewed. This may "
-                "not be feasible, and CIIM does not currently allow analysis "
-                "of such a scenario. Please increase payload emission rate "
-                "to reduce cruise length."
+                f"This crewed duty cycle lasts {cycle_hours:.2f} hours, "
+                f"exceeding two {shift_hours:g}-hour shifts. It would require "
+                "at least three crews. This may not be feasible, and CIIM "
+                "does not currently allow analysis of such a scenario. "
+                "Please increase payload emission rate to reduce cruise length."
             )
 
         crews_per_flight = 1
-        if cycle_hours > 8:
+        if cycle_hours > shift_hours:
             crews_per_flight = 2
             warnings.warn(
-                "This is a crewed duty cycle lasting more than 8 hours, "
-                "meaning that it would have to be double-crewed. This may "
-                "pose additional constraints or reduce performance in ways "
-                "that are not represented in CIIM, so results for this "
-                "simulation may be overly optimistic. Consider increasing "
-                "payload emission rate to reduce cruise length.",
+                f"This crewed duty cycle lasts {cycle_hours:.2f} hours, "
+                f"exceeding one {shift_hours:g}-hour shift. It would have "
+                "to be double-crewed. This may pose additional constraints "
+                "or reduce performance in ways that are not represented "
+                "in CIIM, so results for this simulation may be overly "
+                "optimistic. Consider increasing payload emission rate "
+                "to reduce cruise length.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -480,6 +484,139 @@ def calculate_aircraft_required(
     return determine_units_required(flights, capacity_per_owned_aircraft)
 
 
+
+
+def calculate_ground_crew(
+    flights: pd.Series,
+    design: AircraftDesign,
+    labor: Labor,
+) -> pd.Series:
+    """Ground-crew headcount required each year, in complete teams.
+
+    Each team services one aircraft at a time. Service time is the specified
+    share of the aircraft's ground cycle plus extra time per cycle.
+
+    Round cycles per shift downward: a team must finish each service within
+    its shift. Round the annual team requirement upward, then multiply by
+    team size to obtain headcount.
+
+    This estimates staffing from annual workload. It assumes flights can be
+    staggered to use team capacity and does not model peaks within a day.
+    AircraftMethod validation ensures one service fits within a shift.
+    """
+    ground = labor.ground_crew
+    service_hours = (
+        design.ground_cycle_hours * ground.ground_cycle_share
+        + ground.extra_hours_per_cycle
+    )
+    cycles_per_shift = floor(labor.shift_hours / service_hours)
+    cycles_per_team_per_year = (
+        cycles_per_shift
+        * ground.shifts_per_week
+        * labor.weeks_per_year
+    )
+    teams_required = determine_units_required(
+        flights, cycles_per_team_per_year
+    )
+    return teams_required * ground.team_size
+
+
+def calculate_basing_required(
+    flights: pd.Series,
+    basing: Basing,
+) -> pd.Series:
+    """Base capacity blocks required each year for the scheduled flights.
+
+    Each flight generates movements_per_flight movements, normally one
+    takeoff and one landing. Capacity is purchased in whole blocks of
+    annual_movements_per_unit; rounding upward represents its lumpiness.
+
+    Blocks are pooled capacity, not individual geographically located bases.
+    Requirements follow actual flights; no additional basing margin is
+    applied for spare aircraft.
+    """
+    movements = flights * basing.movements_per_flight
+    return determine_units_required(
+        movements, basing.annual_movements_per_unit
+    )
+
+
+def calculate_aircrew(
+    flights: pd.Series,
+    mission: Mission,
+    design: AircraftDesign,
+    labor: Labor,
+) -> pd.Series:
+    """Aircrew headcount required each year, in complete crews.
+
+    Single-crewed missions fit a whole number of flight-plus-ground cycles
+    into each shift. Double-crewed missions consume one shift from each
+    of two crews per flight, following the mission calculator's approximation.
+
+    Annual crew-shifts are shared across the workforce. Round the number
+    of crews employed upward, then multiply by people per crew.
+
+    Uses the same configured shift length passed to calculate_mission().
+    The mission's crews_per_flight therefore determines whether each flight
+    fits within one shift or requires two crew-shifts.
+    """
+    if design.aircrew_size == 0:
+        return pd.Series(0, index=flights.index, dtype=int)
+
+    if mission.crews_per_flight == 2:
+        crew_shifts_required = flights * 2
+    else:
+        flights_per_shift = floor(labor.shift_hours / mission.cycle_hours)
+        crew_shifts_required = flights / flights_per_shift
+
+    shifts_per_crew_per_year = (
+        labor.aircrew.shifts_per_week * labor.weeks_per_year
+    )
+    crews_required = determine_units_required(
+        crew_shifts_required, shifts_per_crew_per_year
+    )
+    return crews_required * design.aircrew_size
+
+
+def calculate_support_staff(
+    aircrew: pd.Series,
+    ground_crew: pd.Series,
+    labor: Labor,
+) -> pd.Series:
+    """Other personnel, rounded upward to whole people.
+
+    Apply the support ratio to combined aircrew and ground-crew headcount.
+    For uncrewed aircraft, this category also covers remote operations;
+    no separate remote-operator requirement is calculated.
+    """
+    staff_required = (aircrew + ground_crew) * labor.support.ratio
+    return determine_units_required(staff_required, 1.0)
+
+def calculate_labor_costs(
+    aircrew: pd.Series,
+    ground_crew: pd.Series,
+    support_staff: pd.Series,
+    labor: Labor,
+) -> pd.DataFrame:
+    """Annual salary costs in USD, including overhead for every group.
+
+    Headcounts are annual staffing requirements. Each person incurs a full
+    year's salary; hiring, training, and severance costs are not modeled.
+    
+    Returns a year-indexed table with aircrew_cost, ground_crew_cost,
+    support_staff_cost, and their sum, labor_cost. Every cost column
+    includes overhead. Input headcounts must share the same year index.
+    """
+    costs = pd.DataFrame({
+        "aircrew_cost": aircrew * labor.aircrew.salary,
+        "ground_crew_cost": ground_crew * labor.ground_crew.salary,
+        "support_staff_cost": support_staff * labor.support.salary,
+    })
+    costs *= 1 + labor.overhead_rate
+    costs["labor_cost"] = costs.sum(axis=1)
+    return costs
+
+
 # --- Aircraft fleet scheduling -----------------------------------------------
 
 
@@ -506,6 +643,11 @@ def schedule_aircraft(
     or whose accumulated cycles have reached the limit. Deliver enough aircraft
     to cover any fleet shortfall, then share this year's flights equally across
     all aircraft in service.
+
+    Maintenance downtime rotates across the fleet, so availability is
+    already accounted for in fleet sizing and is not applied again when
+    distributing flights. Spare capacity reduces average cycles per aircraft.
+
     Surplus aircraft remain in service and incur full annual maintenance.
 
     Cycle retirement uses the previous year's closing cycle count. A cohort
