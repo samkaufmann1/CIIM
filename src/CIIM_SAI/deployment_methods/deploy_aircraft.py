@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from CIIM_SAI.load_inputs import Frozen, Inputs, Material
-
+from CIIM_SAI.deployment_methods.scheduling import determine_units_required
 
 
 # --- Classes from aircraft.yaml ----------------------------------------------
@@ -430,6 +430,55 @@ def calculate_mission(
         cycle_hours=cycle_hours,
         crews_per_flight=crews_per_flight,
     )
+
+
+# --- Deployment operations ---------------------------------------------------
+
+
+def calculate_flights(
+    demand: pd.Series,
+    payload_per_flight: float,
+) -> pd.Series:
+    """Whole flights required each year to meet or exceed deployment demand.
+
+    demand is a year-indexed Series in kg; payload_per_flight is the
+    mission's solved payload in kg. Every flight carries that full payload,
+    so rounding upward can deploy slightly more material than requested.
+
+    Actual deployed mass is flights * payload_per_flight. Zero demand
+    requires zero flights.
+    """
+    return determine_units_required(demand, payload_per_flight)
+
+
+def calculate_aircraft_required(
+    flights: pd.Series,
+    flights_per_aircraft_per_year: float,
+    availability: float,
+    excess_capacity: float,
+) -> pd.Series:
+    """Minimum whole owned fleet required each year.
+
+    flights_per_aircraft_per_year is the operating calendar divided by
+    mission cycle time, before maintenance availability is applied. It
+    remains fractional because cycles can span days.
+
+    Availability reduces the productive capacity of each owned aircraft.
+    Excess capacity adds a fleet margin: 0.15 means buying 15% above the
+    requirement after allowing for maintenance. Round upward only after
+    applying both adjustments.
+
+    This is the required fleet, not annual purchases. schedule_aircraft()
+    accounts for aircraft retained from previous years and replacements.
+    """
+
+    capacity_per_owned_aircraft = (
+        flights_per_aircraft_per_year
+        * availability
+        / (1 + excess_capacity)
+    )
+    return determine_units_required(flights, capacity_per_owned_aircraft)
+
 
 # --- Aircraft fleet scheduling -----------------------------------------------
 
