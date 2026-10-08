@@ -10,6 +10,8 @@ everything arrives via Inputs.
 
 from __future__ import annotations
 
+import warnings
+
 from pydantic import Field, model_validator
 
 from dataclasses import dataclass
@@ -308,6 +310,126 @@ def deployable_materials(materials: dict) -> list[str]:
         name for name, values in materials.items() if values.get("forcing") is not None
     )
 
+
+# --- Mission calculations ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Mission:
+    """Derived properties of one full-payload flight and its ground cycle.
+
+    Masses are in kg and durations in hours. fuel_burned excludes reserve.
+    cycle_hours includes the ground cycle and is also the assumed crew duty.
+    crews_per_flight counts complete crews, not individual crew members;
+    each crew contains design.aircrew_size people.
+    """
+
+    payload: float                 # kg deployed per flight
+    cruise_fuel: float             # kg burned during cruise
+    fuel_burned: float             # kg burned in climb, cruise, and descent
+    cruise_hours: float
+    flight_hours: float             # climb + cruise + descent
+    cycle_hours: float              # flight + ground cycle; also crew duty
+    crews_per_flight: int           # 0 uncrewed, 1 single-crewed, 2 double-crewed
+
+
+def calculate_mission(
+    design: AircraftDesign,
+    profile: MissionProfile,
+    emission_rate: float,
+) -> Mission:
+    """Solve the cruise weight budget and derive full-flight requirements.
+
+    Inputs have already passed their schemas: emission_rate is positive,
+    and the profile leaves positive useful weight after empty weight and
+    climb, descent, and reserve fuel are subtracted.
+
+    Cruise duration, fuel mass, and payload mass are three unknowns linked
+    by three equations:
+
+        fuel + payload = useful_weight
+        fuel / fuel_burn_rate = cruise_seconds
+        payload / emission_rate = cruise_seconds
+
+    This is solvable analytically. Substitution gives:
+
+        cruise_seconds = useful_weight / (fuel_burn_rate + emission_rate)
+
+    Multiplying this duration by each rate gives the corresponding mass.
+    Both rates are in kg/s, so the solved duration is in seconds. Slower
+    emission allocates more of the available weight to fuel and less to
+    payload.
+
+    This solution uses the entire cruise weight budget. If the resulting
+    payload exceeds the aircraft's payload limit, the mission is rejected
+    rather than recalculated at a lower takeoff weight.
+
+    Reserve fuel is carried throughout but is not normally burned.
+
+    Crew duty includes the full ground cycle. Crewed duties up to eight
+    hours use one crew; duties above eight and up to sixteen use two crews
+    and give a warning. Longer crewed duties are rejected. These thresholds
+    are modeling assumptions. Double-crewing does not change the modeled
+    aircraft weight or performance. Uncrewed missions have no duty cycle length limit.
+    """
+    useful_weight = (
+        profile.takeoff_weight
+        - design.operating_empty_weight
+        - profile.fixed_fuel
+    )
+    cruise_seconds = useful_weight / (
+        profile.cruise.fuel_burn_rate + emission_rate
+    )
+    payload = emission_rate * cruise_seconds
+    cruise_fuel = profile.cruise.fuel_burn_rate * cruise_seconds
+
+    if payload > design.max_payload:
+        raise ValueError(
+            f"The mission requires {payload:,.1f} kg of payload, exceeding "
+            f"the aircraft's maximum payload of {design.max_payload:,.1f} kg. "
+            "CIIM does not automatically reduce the payload. Review the "
+            "mission profile, aircraft payload limit, or payload emission rate."
+        )
+
+    cruise_hours = cruise_seconds / 3600
+    flight_hours = profile.fixed_hours + cruise_hours
+    cycle_hours = flight_hours + design.ground_cycle_hours
+    fuel_burned = profile.climb.fuel + cruise_fuel + profile.descent.fuel
+
+    crews_per_flight = 0
+    if design.aircrew_size > 0:
+        if cycle_hours > 16:
+            raise ValueError(
+                "This is a crewed duty cycle lasting more than 16 hours, "
+                "meaning that it would have to be triple-crewed. This may "
+                "not be feasible, and CIIM does not currently allow analysis "
+                "of such a scenario. Please increase payload emission rate "
+                "to reduce cruise length."
+            )
+
+        crews_per_flight = 1
+        if cycle_hours > 8:
+            crews_per_flight = 2
+            warnings.warn(
+                "This is a crewed duty cycle lasting more than 8 hours, "
+                "meaning that it would have to be double-crewed. This may "
+                "pose additional constraints or reduce performance in ways "
+                "that are not represented in CIIM, so results for this "
+                "simulation may be overly optimistic. Consider increasing "
+                "payload emission rate to reduce cruise length.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    return Mission(
+        payload=payload,
+        cruise_fuel=cruise_fuel,
+        fuel_burned=fuel_burned,
+        cruise_hours=cruise_hours,
+        flight_hours=flight_hours,
+        cycle_hours=cycle_hours,
+        crews_per_flight=crews_per_flight,
+    )
 
 # --- Aircraft fleet scheduling -----------------------------------------------
 
