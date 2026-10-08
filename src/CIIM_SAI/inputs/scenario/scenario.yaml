@@ -12,6 +12,11 @@ method_options:
 altitude: 20000
 
 
+
+#method_options:
+#  design: fake_lofter_crewed
+#  payload_emission_rate: 3.0
+
 # Exactly one of these. deployment_pattern is the override: it names the
 # deployed masses directly and skips the climatology module entirely.
 # deployment_pattern: example_deployment_pattern.csv

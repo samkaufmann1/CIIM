@@ -9,6 +9,8 @@
 # or has been designed. They need replacing with real performance data before any
 # result from this method means anything.
 
+
+
 aircraft:
   fuel: Jet-A
 
@@ -156,7 +158,7 @@ basing:
   cost_per_annual_movement: 2.9e+4 # USD of capital per movement per year of capacity
   movements_per_flight: 2          # a takeoff and a landing
   annual_movements_per_unit: 5.0e+4       # capacity of one base unit; sets basing's lumpiness
-  build_years: 5
+  build_years: 10
   lifetime_years: 70
   maintenance_rate: 0.03           # per year, against installed capital
   source: >-

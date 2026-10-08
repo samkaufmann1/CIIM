@@ -12,7 +12,12 @@ from __future__ import annotations
 
 from pydantic import Field, model_validator
 
+from dataclasses import dataclass
+
+import pandas as pd
+
 from CIIM_SAI.load_inputs import Frozen, Inputs, Material
+
 
 
 # --- Classes from aircraft.yaml ----------------------------------------------
@@ -65,7 +70,7 @@ class MissionProfile(Frozen):
 
     @property
     def fixed_fuel(self) -> float:
-        """Fuel committed before cruise: climb, descent, and the reserve carried throughout."""
+        """Climb, descent, and reserve fuel excluded from the cruise weight budget."""
         return self.climb.fuel + self.descent.fuel + self.reserve.fuel
 
     @property
@@ -223,6 +228,11 @@ class AircraftOptions(Frozen):
     """The scenario's method_options when the deployment method is aircraft."""
 
     design: str = Field(description="A key under aircraft.designs in aircraft.yaml")
+    payload_emission_rate: float | None = Field(
+    default=None,
+    gt=0,
+    description="kg/s; omitted means use the selected aircraft design's rate",
+    )
 
 
 # --- Checks that span more than one input file -------------------------------
@@ -242,9 +252,7 @@ def find_design(method: AircraftMethod, options: AircraftOptions) -> AircraftDes
 def find_profile(design: AircraftDesign, altitude: float) -> MissionProfile:
     """The mission profile for this altitude, which must be one the design has.
 
-    Nothing is interpolated between profiles. A profile is measured performance,
-    and a weighted average of two of them describes no aircraft -- so an
-    altitude the design has not been flown at is an error naming the ones it has.
+    Profiles are supplied for specific altitudes; this model does not interpolate between them.
 
     Altitudes reach here as floats from the scenario and are keyed as integers
     in the file, so a whole number matches and anything else is rejected rather
@@ -299,3 +307,90 @@ def deployable_materials(materials: dict) -> list[str]:
     return sorted(
         name for name, values in materials.items() if values.get("forcing") is not None
     )
+
+
+# --- Aircraft fleet scheduling -----------------------------------------------
+
+
+@dataclass
+class Cohort:
+    """Aircraft delivered in one year, sharing an average accumulated cycle count."""
+    delivered: int             # calendar year entering service
+    count: int
+    cycles: float = 0.0        # accumulated cycles per aircraft
+
+
+def schedule_aircraft(
+    flights: pd.Series,
+    aircraft_required: pd.Series,
+    lifetime_years: int,
+    lifetime_cycles: int,
+) -> pd.DataFrame:
+    """Retire, deliver, and fly aircraft in annual steps.
+
+    flights and aircraft_required share a consecutive integer year index.
+    The caller sizes aircraft_required using availability and excess capacity.
+
+    At the start of each year, retire cohorts whose calendar life has elapsed
+    or whose accumulated cycles have reached the limit. Deliver enough aircraft
+    to cover any fleet shortfall, then share this year's flights equally across
+    all aircraft in service.
+    Surplus aircraft remain in service and incur full annual maintenance.
+
+    Cycle retirement uses the previous year's closing cycle count. A cohort
+    reaching its limit during a year serves that entire year and retires at the
+    next year's start. This annual approximation can overshoot the cycle limit
+    by less than one year's flying; no within-year replacements are modeled.
+
+    The caller shifts deliveries backward by the lead time to schedule orders
+    and capital spending, using the same annual convention as other methods.
+    
+    Output columns:
+        aircraft_required          Minimum owned fleet needed for this year.
+        aircraft_entering_service  Aircraft delivered at the year's start.
+        aircraft_retiring_calendar Aircraft retired under the calendar limit.
+        aircraft_retiring_cycles   Aircraft retired under the cycle limit.
+        aircraft_active            All aircraft retained in service, including
+                                   maintenance downtime and spare capacity.
+        cycles_per_aircraft        This year's flights per owned aircraft,
+                                   added to each cohort's accumulated cycles.
+    """
+    cohorts: list[Cohort] = []
+    rows = []
+
+    for year, annual_flights in flights.items():
+        required = int(aircraft_required.loc[year])
+        retiring_calendar = retiring_cycles = 0
+        survivors = []
+        for cohort in cohorts:
+            if year - cohort.delivered >= lifetime_years:
+                # Count simultaneous calendar and cycle retirement only once.
+                retiring_calendar += cohort.count
+            elif cohort.cycles >= lifetime_cycles - 1e-8:
+                # Tolerance avoids delaying retirement for floating-point noise.
+                retiring_cycles += cohort.count
+            else:
+                survivors.append(cohort)
+        cohorts = survivors
+
+        active = sum(cohort.count for cohort in cohorts)
+        entering = max(0, required - active)
+        if entering:
+            cohorts.append(Cohort(int(year), entering))
+            active += entering
+
+        cycles_per_aircraft = float(annual_flights) / active if active else 0.0
+        for cohort in cohorts:
+            cohort.cycles += cycles_per_aircraft
+
+        rows.append({
+            "year": year,
+            "aircraft_required": required,
+            "aircraft_entering_service": entering,
+            "aircraft_retiring_calendar": retiring_calendar,
+            "aircraft_retiring_cycles": retiring_cycles,
+            "aircraft_active": active,
+            "cycles_per_aircraft": cycles_per_aircraft,
+        })
+
+    return pd.DataFrame(rows).set_index("year")
