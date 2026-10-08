@@ -80,11 +80,14 @@ def schedule_assets(units_required: pd.Series, lifetime_years: int) -> pd.DataFr
 
 
 def spread_development(years: pd.RangeIndex, nre: float, duration_years: int) -> pd.Series:
-    """Non-recurring engineering spread evenly over the years before the first order.
+    """Spread non-recurring engineering evenly over the first duration_years.
 
-    Development must finish before anything can be ordered, which is the first
-    duration_years of `years` -- exactly where find_program_years puts it, so
-    the two cannot disagree about when development happens.
+    The caller supplies an index beginning when development starts. This
+    may be the full program index or a separate development window that is
+    subsequently reindexed onto the program years.
+
+    The caller is responsible for placing development before the relevant
+    asset's first order.
     """
     spend = pd.Series(0.0, index=years)
     spend.iloc[:duration_years] = nre / duration_years
@@ -106,5 +109,10 @@ def spread_capital(entering_service: pd.Series, cost: float, lead_time_years: in
     """
     if lead_time_years == 0:
         return entering_service * float(cost)
-    arriving_soon = sum(entering_service.shift(-k) for k in range(1, lead_time_years + 1))
-    return arriving_soon.fillna(0.0) * (cost / lead_time_years)
+    # Treat deliveries beyond the reporting horizon as zero before summing,
+    # preserving installments owed for deliveries inside the horizon.
+    arriving_soon = sum(
+        entering_service.shift(-k, fill_value=0)
+        for k in range(1, lead_time_years + 1)
+    )
+    return arriving_soon * (cost / lead_time_years)

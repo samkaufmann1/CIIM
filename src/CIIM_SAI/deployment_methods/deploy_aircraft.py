@@ -18,7 +18,13 @@ import pandas as pd
 from pydantic import Field, model_validator
 
 from CIIM_SAI.load_inputs import Frozen, Inputs, Material
-from CIIM_SAI.deployment_methods.scheduling import determine_units_required
+from CIIM_SAI.deployment_methods.scheduling import (
+    determine_units_required,
+    find_program_years,
+    schedule_assets,
+    spread_capital,
+    spread_development,
+)
 
 
 # --- Classes from aircraft.yaml ----------------------------------------------
@@ -707,3 +713,241 @@ def schedule_aircraft(
         })
 
     return pd.DataFrame(rows).set_index("year")
+
+# --- Annual deployment schedule ---------------------------------------------
+
+
+def deployment_schedule(inputs: Inputs) -> pd.DataFrame:
+    """Build the annual aircraft deployment and cost table.
+
+    Indexed by year, from the first development or construction activity
+    through the last year of the deployment pattern.
+
+    Aircraft development precedes the first aircraft order. Base construction
+    proceeds independently, so its lead time can overlap development and
+    aircraft procurement. Purchases anticipate demand and replacements;
+    manufacturing capacity is not constrained.
+
+    Demand is summed across latitudes. Every flight carries the full solved
+    payload, so deployed_mass can exceed demand after flights are rounded up.
+    Fuel, material purchases, and operating labor follow actual flights.
+    Maintenance follows all aircraft and basing capacity retained in service.
+
+    Principal outputs:
+        demand                   Requested deployment, kg/year.
+        deployed_mass            Actual deployment, kg/year.
+        flights                  Whole flights flown during the year.
+        payload_per_flight       Solved payload, kg.
+        fuel_per_flight          Fuel burned, excluding reserve, kg.
+        fuel_kg                  Total annual fuel burned.
+        aircraft_required        Minimum owned fleet required.
+        aircraft_active          Owned fleet retained in service.
+        base_units_required      Minimum basing capacity blocks required.
+        base_units_active        Capacity blocks retained in service.
+        basing_capacity          Available movements per year.
+        capacity                 Deployment capacity, kg/year, limited by
+                                 aircraft availability or basing throughput.
+        utilization              Requested demand / capacity; NaN when
+                                 capacity is zero.
+        aircrew, ground_crew,
+        support_staff, workers   Annual personnel headcounts.
+        development_cost         Aircraft non-recurring engineering.
+        capex                    Aircraft and basing capital spending.
+        opex                     Labor, fuel, deployed material, and maintenance.
+        total_cost               Development + capex + opex.
+
+    Additional columns expose mission durations, crew requirements, asset
+    deliveries and retirements, orders, and individual cost components.
+    Capacity is an infrastructure throughput measure; it does not impose
+    an additional limit from the workforce sized for actual flights.
+    """
+    method = AircraftMethod(**inputs.method)
+    options = AircraftOptions(**inputs.scenario.method_options)
+    design = find_design(method, options)
+    profile = find_profile(design, inputs.scenario.altitude)
+    fuel = find_fuel(inputs.materials, method.aircraft.fuel)
+    material = inputs.materials[inputs.scenario.deployed_material]
+
+    operations = method.operations
+    basing = method.basing
+    development = design.development
+
+    emission_rate = (
+        options.payload_emission_rate
+        if options.payload_emission_rate is not None
+        else design.payload_emission_rate
+    )
+    mission = calculate_mission(
+        design,
+        profile,
+        emission_rate,
+        shift_hours=method.labor.shift_hours,
+    )
+
+    # The longest independent preparation timeline determines program start.
+    # Pass zero development years because the aircraft timeline below already
+    # includes development; basing must not wait for it to finish.
+    preparation_years = max(
+        development.duration_years + design.lead_time_years,
+        basing.build_years,
+    )
+    years = find_program_years(
+        inputs.pattern,
+        lead_time_years=preparation_years,
+        development_years=0,
+    )
+    demand = inputs.pattern.sum(axis=1).reindex(years, fill_value=0.0)
+    first_deployment_year = int(demand.index[demand > 0].min())
+
+    flights = calculate_flights(demand, mission.payload)
+    flights_per_aircraft_per_year = (
+        operations.operating_hours_per_day
+        * operations.operating_days_per_year
+        / mission.cycle_hours
+    )
+    aircraft_required = calculate_aircraft_required(
+        flights,
+        flights_per_aircraft_per_year,
+        design.availability,
+        operations.excess_capacity,
+    )
+    fleet = schedule_aircraft(
+        flights,
+        aircraft_required,
+        design.lifetime_years,
+        design.lifetime_cycles,
+    )
+
+    base_units_required = calculate_basing_required(flights, basing)
+    bases = schedule_assets(base_units_required, basing.lifetime_years)
+    bases = bases.rename(columns={
+        "entering_service": "base_units_entering_service",
+        "retiring": "base_units_retiring",
+        "active": "base_units_active",
+    })
+
+    schedule = pd.DataFrame({
+        "demand": demand,
+        "flights": flights,
+        "deployed_mass": flights * mission.payload,
+        "base_units_required": base_units_required,
+    }).join(fleet).join(bases)
+
+    # Mission properties are constant within a case, including a sweep case.
+    schedule["payload_emission_rate"] = emission_rate
+    schedule["payload_per_flight"] = mission.payload
+    schedule["cruise_fuel_per_flight"] = mission.cruise_fuel
+    schedule["fuel_per_flight"] = mission.fuel_burned
+    schedule["cruise_hours"] = mission.cruise_hours
+    schedule["flight_hours"] = mission.flight_hours
+    schedule["cycle_hours"] = mission.cycle_hours
+    schedule["crews_per_flight"] = mission.crews_per_flight
+    schedule["flights_per_aircraft_per_year"] = flights_per_aircraft_per_year
+    schedule["fuel_kg"] = flights * mission.fuel_burned
+
+    # Excess capacity affects procurement, not physical aircraft productivity.
+    # Availability is applied once when calculating owned-fleet throughput.
+    schedule["aircraft_capacity"] = (
+        schedule["aircraft_active"]
+        * flights_per_aircraft_per_year
+        * design.availability
+        * mission.payload
+    )
+    schedule["basing_capacity"] = (
+        schedule["base_units_active"] * basing.annual_movements_per_unit
+    )
+    basing_mass_capacity = (
+        schedule["basing_capacity"]
+        / basing.movements_per_flight
+        * mission.payload
+    )
+    schedule["capacity"] = pd.concat(
+        [schedule["aircraft_capacity"], basing_mass_capacity], axis=1
+    ).min(axis=1)
+    schedule["utilization"] = (
+        demand / schedule["capacity"].where(schedule["capacity"] > 0)
+    )
+
+    schedule["aircrew"] = calculate_aircrew(
+        flights, mission, design, method.labor
+    )
+    schedule["ground_crew"] = calculate_ground_crew(
+        flights, design, method.labor
+    )
+    schedule["support_staff"] = calculate_support_staff(
+        schedule["aircrew"], schedule["ground_crew"], method.labor
+    )
+    schedule["workers"] = schedule[
+        ["aircrew", "ground_crew", "support_staff"]
+    ].sum(axis=1)
+    schedule = schedule.join(calculate_labor_costs(
+        schedule["aircrew"],
+        schedule["ground_crew"],
+        schedule["support_staff"],
+        method.labor,
+    ))
+
+    # Development ends when the first aircraft order is placed, regardless
+    # of whether base construction began earlier.
+    first_aircraft_order = first_deployment_year - design.lead_time_years
+    development_start = first_aircraft_order - development.duration_years
+    development_years = pd.RangeIndex(
+        development_start, first_aircraft_order, name="year"
+    )
+    schedule["development_cost"] = spread_development(
+        development_years, development.NRE, development.duration_years
+    ).reindex(years, fill_value=0.0)
+
+    schedule["aircraft_ordered"] = schedule[
+        "aircraft_entering_service"
+    ].shift(-design.lead_time_years, fill_value=0)
+    schedule["base_units_ordered"] = schedule[
+        "base_units_entering_service"
+    ].shift(-basing.build_years, fill_value=0)
+
+    # Basing's price is capital per unit of annual movement capacity.
+    base_unit_cost = (
+        basing.cost_per_annual_movement * basing.annual_movements_per_unit
+    )
+    schedule["aircraft_capex"] = spread_capital(
+        schedule["aircraft_entering_service"],
+        design.unit_cost,
+        design.lead_time_years,
+    )
+    schedule["basing_capex"] = spread_capital(
+        schedule["base_units_entering_service"],
+        base_unit_cost,
+        basing.build_years,
+    )
+    schedule["capex"] = (
+        schedule["aircraft_capex"] + schedule["basing_capex"]
+    )
+
+    schedule["aircraft_maintenance_cost"] = (
+        schedule["aircraft_active"]
+        * design.unit_cost
+        * design.maintenance_rate
+    )
+    schedule["basing_maintenance_cost"] = (
+        schedule["base_units_active"]
+        * base_unit_cost
+        * basing.maintenance_rate
+    )
+    schedule["maintenance_cost"] = (
+        schedule["aircraft_maintenance_cost"]
+        + schedule["basing_maintenance_cost"]
+    )
+    schedule["fuel_cost"] = schedule["fuel_kg"] * fuel.cost
+    schedule["deployed_material_cost"] = (
+        schedule["deployed_mass"] * material.cost
+    )
+    schedule["opex"] = schedule[[
+        "maintenance_cost",
+        "fuel_cost",
+        "deployed_material_cost",
+        "labor_cost",
+    ]].sum(axis=1)
+    schedule["total_cost"] = (
+        schedule["development_cost"] + schedule["capex"] + schedule["opex"]
+    )
+    return schedule
