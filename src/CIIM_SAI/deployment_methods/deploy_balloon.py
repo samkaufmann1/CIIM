@@ -274,15 +274,21 @@ def find_gas(materials: dict[str, Material], name: str, role: str) -> Material:
     return material
 
 
-def option_choices(method: dict) -> dict[str, list[str]]:
-    """The method_options a front end may offer, and the values each may take.
+def option_fields(method: dict) -> dict[str, dict]:
+    """Describe deployment method option controls for front ends.
 
-    The optional half of the method contract: a front end asks for this by name
-    and a method with nothing to choose simply does not define it. Takes the raw
-    YAML rather than a BalloonMethod because the caller is a form being drawn,
-    which has the file in hand but no Inputs.
+    Takes the raw method YAML because the caller is drawing a form before
+    constructing Inputs. Schemas and find_design validate the selected
+    value when the model runs; this metadata describes its presentation.
     """
-    return {"design": sorted(BalloonMethod(**method).balloon.designs)}
+    return {
+        "design": {
+            "kind": "choice",
+            "label": "Balloon design",
+            "choices": sorted(BalloonMethod(**method).balloon.designs),
+        },
+    }
+
 
 def deployable_materials(materials: dict) -> list[str]:
     """Materials this method can deploy, out of everything material.yaml defines.

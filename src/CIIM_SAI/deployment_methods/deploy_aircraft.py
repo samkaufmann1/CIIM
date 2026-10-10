@@ -299,9 +299,28 @@ def find_fuel(materials: dict[str, Material], name: str) -> Material:
 # --- What a front end may ask of this method ---------------------------------
 
 
-def option_choices(method: dict) -> dict[str, list[str]]:
-    """The method_options a front end may offer, and the values each may take."""
-    return {"design": sorted(AircraftMethod(**method).aircraft.designs)}
+def option_fields(method: dict) -> dict[str, dict]:
+    """Describe scenario method-option controls for front ends.
+
+    Schemas validate input values; this metadata describes how to display
+    them. An omitted optional field retains the model's default behavior.
+    """
+    return {
+        "design": {
+            "kind": "choice",
+            "label": "Aircraft design",
+            "choices": sorted(AircraftMethod(**method).aircraft.designs),
+        },
+        "payload_emission_rate": {
+            "kind": "number",
+            "label": "Payload emission rate override (kg/s)",
+            "optional": True,
+            "help": (
+                "Leave blank to use the selected aircraft's emission rate. "
+                "Leave blank when sweeping that aircraft property."
+            ),
+        },
+    }
 
 
 def deployable_materials(materials: dict) -> list[str]:

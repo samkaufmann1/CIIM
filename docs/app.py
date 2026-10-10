@@ -31,6 +31,16 @@ inputs = None
 sweep_params: list[str] = []
 currency_year = None
 
+
+def clear_results() -> None:
+    """Discard the previous run's results and associated metadata."""
+    global results, inputs, sweep_params, currency_year
+    results = None
+    inputs = None
+    sweep_params = []
+    currency_year = None
+
+
 def materialize_inputs(dest: str = "/ciim_inputs") -> None:
     """Copy the packaged input files into a writable directory.
 
@@ -235,20 +245,20 @@ def component_chart() -> str:
     return fig.to_json()
 
 
-def find_option_choices(method_name: str, method_data: dict) -> dict[str, list[str]]:
-    """The method_options the chosen method offers, and the values each allows.
+def find_option_fields(method_name: str, method_data: dict) -> dict[str, dict]:
+    """Form controls declared by the deployment method.
 
-    A method module may define option_choices(method_yaml); one with nothing to
-    choose does not, and gets an empty dict here. Nothing in this file names a
-    particular method, so adding one needs no edit to the GUI.
+    A method without scenario options may omit option_fields(). Field
+    metadata describes presentation; the method's schemas validate values.
     """
-    choices = getattr(get_method(method_name), "option_choices", None)
-    return choices(method_data) if choices else {}
+    fields = getattr(get_method(method_name), "option_fields", None)
+    return fields(method_data) if fields else {}
+
 
 def find_deployable_materials(method_name: str, materials: dict) -> list[str]:
     """The materials the chosen method can deploy, narrowed from material.yaml.
 
-    The same optional-hook pattern as find_option_choices: a method that can
+    The same optional-hook pattern as find_option_fields: a method that can
     deploy anything defines nothing and gets everything the file offers.
     """
     narrow = getattr(get_method(method_name), "deployable_materials", None)
@@ -283,21 +293,29 @@ def scenario_form_init() -> str:
     if deployable and scenario.get("deployed_material") not in deployable:
         scenario["deployed_material"] = deployable[0]
 
-    # Method options belong to the method, so a scenario carried over from
-    # another one holds values the new method has never heard of. Each option is
-    # seeded from the choices the current method offers, keeping the saved value
-    # only when it is one of them -- the same write-then-repopulate the mode
-    # radio uses, so the form can never hold an option the method cannot honor.
-    option_choices = find_option_choices(scenario["deployment_method"], method)
+    # Seed dropdowns from their offered choices. Preserve saved numeric
+    # values for validation at run time; absent optional values stay absent.
+    option_fields = find_option_fields(scenario["deployment_method"], method)
     saved = scenario.get("method_options") or {}
-    method_options = {
-        name: (saved[name] if saved.get(name) in values else values[0])
-        for name, values in option_choices.items()
-    }
+    method_options = {}
+
+    for name, field in option_fields.items():
+        if field["kind"] == "choice":
+            choices = field["choices"]
+            method_options[name] = (
+                saved[name] if saved.get(name) in choices else choices[0]
+            )
+        elif field["kind"] == "number":
+            if saved.get(name) is not None:
+                method_options[name] = saved[name]
+        else:
+            raise ValueError(
+                f"Unsupported option field kind {field['kind']!r} for {name!r}"
+            )
 
     return json.dumps({
         "scenario": scenario,
-        "option_choices": option_choices,
+        "option_fields": option_fields,
         "method_options": method_options,
         "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
         "materials": deployable,
@@ -384,6 +402,50 @@ def write_overrides(overrides_json: str) -> None:
         for dotted, value in fields.items():
             set_at(data, dotted, value)   # the model's own walker: it knows numeric keys
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+def prepare_form_change(change_json: str) -> str:
+    """Save a proposed form change and return both new form descriptions.
+
+    If preparing either description fails, restore every input file touched
+    by the change. The browser keeps its existing controls until this returns
+    successfully.
+    """
+    change = json.loads(change_json)
+    root = Path("/ciim_inputs")
+    paths = {
+        root / "scenario" / "scenario.yaml",
+        *(root / rel for rel in change["overrides"]),
+    }
+    previous = {
+        path: path.read_text(encoding="utf-8")
+        for path in paths
+    }
+
+    try:
+        write_overrides(json.dumps(change["overrides"]))
+        write_scenario(json.dumps(change["scenario"]))
+
+        scenario_form = json.loads(scenario_form_init())
+        inputs_form = json.loads(inputs_form_init())
+
+        # Save the same selected options and material shown by the new form.
+        scenario = scenario_form["scenario"]
+        scenario["method_options"] = scenario_form["method_options"]
+        scenario["sweep"] = {
+            name: values
+            for name, values in scenario.get("sweep", {}).items()
+            if name in scenario_form["sweepable"]
+        }
+        write_scenario(json.dumps(scenario))
+
+        return json.dumps({
+            "scenario_form": scenario_form,
+            "inputs_form": inputs_form,
+        })
+    except Exception:
+        for path, text in previous.items():
+            path.write_text(text, encoding="utf-8")
+        raise
 
 
 def export_config() -> str:
