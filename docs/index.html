@@ -52,6 +52,24 @@
 
   #run-status.ok    { color: #5a7a5a; }
   #run-status.error { color: #a33; }
+  #run-status.warning { color: #805500; }
+
+  #run-warnings {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid #a66b00;
+    background: #fff8e6;
+    color: #684600;
+  }
+
+  #warning-list {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+  }
+
+  #warning-list li + li {
+    margin-top: 0.5rem;
+  }
 
   fieldset label { display: block; margin-bottom: 0.5rem; }
   .sweep-row { margin-bottom: 0.5rem; }
@@ -160,6 +178,11 @@
 
 
   <p id="cost-headline" hidden></p>
+  <section id="run-warnings" aria-labelledby="warnings-heading"
+           aria-live="polite" hidden>
+    <strong id="warnings-heading">Model warnings</strong>
+    <ul id="warning-list"></ul>
+  </section>
   <pre id="output"></pre>
   <button id="download-csv" disabled>Download results CSV</button>
   <button id="download-derived" type="button" hidden>Download derived pattern CSV</button>
@@ -625,11 +648,28 @@
 
     let pyodide = null;
 
+    /**
+     * Display model warnings as plain text, or hide the area when empty.
+     */
+    function renderWarnings(messages) {
+      const container = document.getElementById("run-warnings");
+      const list = document.getElementById("warning-list");
+      list.replaceChildren();
+
+      for (const message of messages) {
+        const item = document.createElement("li");
+        item.textContent = message;
+        list.appendChild(item);
+      }
+
+      container.hidden = messages.length === 0;
+    }
 
     function clearResults() {
       // Remove displayed results and disable their downloads before changing
       // inputs or starting another run.
       document.getElementById("output").textContent = "";
+      renderWarnings([]);
 
       const headline = document.getElementById("cost-headline");
       headline.textContent = "";
@@ -676,10 +716,15 @@
         derived.hidden = !hasDerivedPattern;
         derived.disabled = !hasDerivedPattern;
 
+        const messages = JSON.parse(callPython("warnings_json"));
+        renderWarnings(messages);
+
         document.getElementById("output").textContent = summary;
         document.getElementById("download-csv").disabled = false;
-        status.textContent = "Model run successful";
-        status.className = "ok";
+        status.textContent = messages.length
+          ? "Model run completed with warnings"
+          : "Model run successful";
+        status.className = messages.length ? "warning" : "ok";
       } catch (err) {
         // Discard partial results if computation or rendering failed.
         clearResults();
