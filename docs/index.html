@@ -687,21 +687,56 @@
       downloadText("deployment_schedule.csv", callPython("results_csv"));
     });
 
-    document.getElementById("f-pattern").addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const text = await file.text();
-      patternFile = callPython("write_pattern", text, file.name);
-      document.getElementById("pattern-name").textContent = patternFile;
-    });
+    /**
+     * Set up a CSV upload control to save files through Python.
+     *
+     * When a file is selected, read its contents and call pythonFunction
+     * with the text and original filename. After saving succeeds, pass the
+     * returned filename to rememberFile and display it in labelId.
+     *
+     * Show read or save errors without changing the remembered selection.
+     * Clear the file input afterward so the same file can be selected again.
+     *
+     * @param {string} inputId - ID of the file input.
+     * @param {string} labelId - ID of the element displaying the saved filename.
+     * @param {string} pythonFunction - Python function that saves the CSV.
+     * @param {function(string): void} rememberFile - Updates the selected filename.
+     */
+    function setupCsvUpload(inputId, labelId, pythonFunction, rememberFile) {
+      document.getElementById(inputId).addEventListener("change", async (e) => {
+        const input = e.target;
+        const file = input.files[0];
+        if (!file) return;
 
-    document.getElementById("f-temperature").addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const text = await file.text();
-      temperatureFile = callPython("write_temperature_pattern", text, file.name);
-      document.getElementById("temperature-name").textContent = temperatureFile;
-    });
+        try {
+          const text = await file.text();
+          const filename = callPython(pythonFunction, text, file.name);
+
+          // Update the selection only after Python saves the file.
+          rememberFile(filename);
+          document.getElementById(labelId).textContent = filename;
+        } catch (err) {
+          showFormError(err);
+        } finally {
+          // Allow selecting the same file again, including after a failure.
+          input.value = "";
+        }
+      });
+    }
+
+    setupCsvUpload(
+      "f-pattern",
+      "pattern-name",
+      "write_pattern",
+      filename => { patternFile = filename; }
+    );
+
+    setupCsvUpload(
+      "f-temperature",
+      "temperature-name",
+      "write_temperature_pattern",
+      filename => { temperatureFile = filename; }
+    );
 
     document.getElementById("download-temperature").addEventListener("click", () => {
       downloadText(temperatureFile,
@@ -802,7 +837,7 @@
       try {
         clearResults();
         const text = await file.text();
-        callPython("import_config", text)
+        callPython("import_config", text);
         methodOptionsByMethod.clear();
         patternFile = null;
         temperatureFile = null;
