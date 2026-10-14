@@ -105,7 +105,10 @@
       <select id="f-material"></select>
     </label>
     <label>altitude (m)
-      <input id="f-altitude" type="number" min="1" step="any">
+      <input id="f-altitude" type="number" min="1" step="any"
+             list="altitude-options" aria-describedby="altitude-help">
+      <datalist id="altitude-options"></datalist>
+      <small id="altitude-help" hidden></small>
     </label>
     <fieldset id="mode-block">
       <legend>deployed mass</legend>
@@ -364,7 +367,40 @@
       }
     }
 
+    /**
+     * Show the selected design's discrete altitude choices.
+     * Preserve the current altitude and sweep so the user can correct them.
+     */
+    function setupAltitudeGuidance(byDesign) {
+      const designControl = document.querySelector(
+        '#method-options [data-option="design"]'
+      );
 
+      const update = () => {
+        const options = document.getElementById("altitude-options");
+        const help = document.getElementById("altitude-help");
+        const supported = byDesign[designControl?.value];
+
+        options.innerHTML = "";
+        help.textContent = "";
+        help.hidden = supported === undefined;
+        if (supported === undefined) return;
+
+        for (const altitude of supported) {
+          const option = document.createElement("option");
+          option.value = altitude;
+          options.appendChild(option);
+        }
+
+        help.textContent =
+          ` Supported altitudes: ${
+            supported.map(value => value.toLocaleString()).join(", ")
+          } m. Altitude sweeps must use only these values.`;
+      };
+
+      designControl?.addEventListener("change", update);
+      update();
+    }
 
     function populateScenarioForm(
       init = JSON.parse(callPython("scenario_form_init"))
@@ -378,6 +414,7 @@
       fill("f-material", init.materials, init.scenario.deployed_material);
       document.getElementById("f-altitude").value = init.scenario.altitude;
       renderMethodOptions(init.option_fields, init.method_options);
+      setupAltitudeGuidance(init.altitudes_by_design);
 
       // Prefer the scenario's explicit filename. For the inactive mode,
       // remember its previous selection if that file is still available;

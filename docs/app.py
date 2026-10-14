@@ -58,6 +58,7 @@ def run_model(inputs_dir: str | None = None) -> str:
     global results, inputs, sweep_params, currency_year
     inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
     scenario = inputs.scenario
+    validate_requested_altitudes(inputs)
     results = run(inputs)
     sweep_params = list(scenario.sweep)
     currency_year = inputs.currency_year
@@ -264,6 +265,17 @@ def find_deployable_materials(method_name: str, materials: dict) -> list[str]:
     narrow = getattr(get_method(method_name), "deployable_materials", None)
     return narrow(materials) if narrow else sorted(materials)
 
+def find_altitudes_by_design(
+    method_name: str, method_data: dict
+) -> dict[str, list[int]]:
+    """Return discrete altitude choices when the method declares them.
+
+    An empty mapping means the method declares no discrete restriction
+    through this interface; its normal model validation still applies.
+    """
+    lookup = getattr(get_method(method_name), "altitudes_by_design", None)
+    return lookup(method_data) if lookup else {}
+
 def scenario_form_init() -> str:
     """Current scenario values, dropdown options, and sweepable parameters."""
     root = Path("/ciim_inputs")
@@ -317,6 +329,9 @@ def scenario_form_init() -> str:
         "scenario": scenario,
         "option_fields": option_fields,
         "method_options": method_options,
+        "altitudes_by_design": find_altitudes_by_design(
+            scenario["deployment_method"], method
+        ),
         "methods": sorted(p.stem for p in (root / "deployment_methods").glob("*.yaml")),
         "materials": deployable,
         "sweepable": sweepable,

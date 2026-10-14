@@ -298,6 +298,18 @@ def find_fuel(materials: dict[str, Material], name: str) -> Material:
 
 # --- What a front end may ask of this method ---------------------------------
 
+def altitudes_by_design(method: dict) -> dict[str, list[int]]:
+    """Supported injection altitudes, in meters, for each aircraft design.
+
+    Front ends use these values as guidance. find_profile() remains the
+    model's authoritative check; profiles are not interpolated.
+    """
+    aircraft = AircraftMethod(**method).aircraft
+    return {
+        name: sorted(design.mission_profiles)
+        for name, design in aircraft.designs.items()
+    }
+
 
 def option_fields(method: dict) -> dict[str, dict]:
     """Describe scenario method-option controls for front ends.
