@@ -9,8 +9,6 @@
   functions called below by name — run_model, cost_chart, write_scenario,
   and so on — are defined in app.py, fetched and executed at boot.
 
-  ... (rest of the existing text unchanged) ...
-
   The loading overlay, spinner and quips are cosmetic, and freeze while
   Python runs — everything here is on the browser's single main thread.
   -->
@@ -320,23 +318,16 @@
     let displayedMethod = null;
     let displayedMode = null;
     
-    function populateScenarioForm(
-      init = JSON.parse(callPython("scenario_form_init"))
-      ) {
-      const fill = (id, options, selected) => {
-      const sel = document.getElementById(id);
-      sel.innerHTML = "";
-      for (const o of options) sel.add(new Option(o, o, false, o === selected));
-      };
-      fill("f-method", init.methods, init.scenario.deployment_method);
-      fill("f-material", init.materials, init.scenario.deployed_material);
-      document.getElementById("f-altitude").value = init.scenario.altitude;
-      // The method describes each control. Python supplies its saved value;
-      // the model validates that value when the scenario runs.
+    /**
+     * Render method-option controls from field metadata and saved values.
+     * Supports dropdowns and numeric inputs, including optional overrides.
+     * The model validates supplied values when the scenario runs.
+     */
+    function renderMethodOptions(fields, values) {
       const optionsBlock = document.getElementById("method-options");
       optionsBlock.innerHTML = "";
 
-      for (const [name, field] of Object.entries(init.option_fields)) {
+      for (const [name, field] of Object.entries(fields)) {
         const label = document.createElement("label");
         label.textContent = field.label + " ";
 
@@ -345,7 +336,7 @@
           control = document.createElement("select");
           for (const value of field.choices) {
             control.add(new Option(
-              value, value, false, value === init.method_options[name]
+              value, value, false, value === values[name]
             ));
           }
         } else if (field.kind === "number") {
@@ -353,7 +344,7 @@
           control.type = "number";
           control.step = "any";
           control.required = !field.optional;
-          control.value = init.method_options[name] ?? "";
+          control.value = values[name] ?? "";
           if (field.optional) control.placeholder = "Use default";
         } else {
           throw new Error(`Unsupported option field kind: ${field.kind}`);
@@ -371,6 +362,22 @@
 
         optionsBlock.appendChild(label);
       }
+    }
+
+
+
+    function populateScenarioForm(
+      init = JSON.parse(callPython("scenario_form_init"))
+    ) {
+      const fill = (id, options, selected) => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = "";
+        for (const o of options) sel.add(new Option(o, o, false, o === selected));
+      };
+      fill("f-method", init.methods, init.scenario.deployment_method);
+      fill("f-material", init.materials, init.scenario.deployed_material);
+      document.getElementById("f-altitude").value = init.scenario.altitude;
+      renderMethodOptions(init.option_fields, init.method_options);
 
       // Prefer the scenario's explicit filename. For the inactive mode,
       // remember its previous selection if that file is still available;
@@ -405,7 +412,7 @@
       for (const [param, range] of Object.entries(init.scenario.sweep || {})) {
         if (sweepable.includes(param)) addSweepRow(param, range);
       }
-      updateSweepCount(); // The trailing updateSweepCount() is for the no-rows case: addSweepRow calls it, but with zero rows nothing would, and a previous run's "16 cases" would linger.
+      updateSweepCount(); // Refresh the count even when there are no sweep rows.
       
       displayedMethod = init.scenario.deployment_method;
       displayedMode = init.scenario.temperature_pattern != null
