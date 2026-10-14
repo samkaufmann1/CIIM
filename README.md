@@ -5,11 +5,16 @@ A Python model of the infrastructure behind a stratospheric aerosol injection
 supplied, year by year, to deliver a given deployment pattern — and what it
 would cost.
 
-**Status: early development.** Two deployment methods are implemented. Balloons
-are the real one: latex weather balloons filled with hydrogen and a payload gas,
-launched from facilities of launchpads, bursting at the injection altitude. The
-teleporter is fictional, kept because a deliberately simple method is useful for
-exercising the model's machinery.
+**Status: early development.** The model implements balloon deployment and
+crewed or uncrewed aircraft deployment. Balloons carry a payload gas to the
+injection altitude and release it when they burst. Aircraft climb to the
+injection altitude and disperse their payload during cruise. A fictional
+teleporter is also included as a simple test case for the model.
+
+The included aircraft designs use placeholder costs and performance data,
+not validated aircraft designs. Their results illustrate model behavior;
+the inputs must be replaced before those results can support deployment
+estimates.
 
 Treat the balloon figures as preliminary. The largest single cost is the
 balloons themselves, at an assumed unit price well below what small quantities
@@ -30,7 +35,7 @@ All inputs are files packaged under `src/CIIM_SAI/inputs/`:
 
 | File | Contents |
 |---|---|
-| `scenario/scenario.yaml` | Which deployment method and material to run; injection altitude; either a deployment pattern or a temperature target with an injection latitude; `method_options` for choices that mean something only to the chosen method, such as which balloon design to fly; optional parameter sweeps |
+| `scenario/scenario.yaml` | Which deployment method and material to run; injection altitude; either a deployment pattern or a temperature target with an injection latitude; `method_options` for choices that mean something only to the chosen method, such as the selected design or an aircraft payload emission rate override; optional parameter sweeps |
 | `scenario/deployment_patterns/*.csv` | Deployed mass (Tg/year) by year and latitude |
 | `scenario/temperature_patterns/*.csv` | Warming expected without SAI, and warming wanted (°C) by year |
 | `deployment_methods/*.yaml` | One file per deployment method, in whatever shape that method's module defines: development, the assets it buys, what it consumes, and who operates it |
@@ -51,14 +56,21 @@ per Tg per year, then adjusting for how long aerosol survives at that altitude
 and latitude. The result is a deployment pattern in the same format as a
 hand-written one, and the rest of the model cannot tell the difference.
 
-From the deployment pattern, a method works out what it must own and operate
-each year — teleporters for one, launchpads and facilities and recovery drones
-for the other — and schedules purchases, deliveries and retirements around each
-asset's lifetime and lead time. It then prices the result: development spread
-over the years before the first order, capital spread across each asset's lead
-time, and operating costs for what is in service. A scenario may sweep any
-numeric parameter over a range; results are stacked into a single table, one row
-per (case, year).
+From the deployment pattern, each method calculates what it must own and
+operate each year: aircraft and basing capacity, balloon launch facilities
+and recovery drones, or fictional teleporters. It schedules purchases,
+deliveries, and retirements using the relevant lifetimes and lead times,
+then calculates development, capital, and operating costs.
+
+The aircraft method derives payload, fuel consumption, and flight duration
+from the selected design's mission profile and payload emission rate.
+Flights are rounded up and use full mission payloads. Flight requirements
+determine fleet size, basing capacity, fuel consumption, and labor.
+Aircraft delivery cohorts track both calendar age and accumulated flight
+cycles. Base construction can overlap aircraft development and procurement.
+
+A scenario may sweep parameters declared sweepable in the input files.
+Results are stacked into one table, with one row per (case, year).
 
 Conventions: SI base units (altitude in meters, mass in kg, cost in USD) unless
 the variable's own name says otherwise — `launch_time_hours`,
@@ -85,17 +97,20 @@ choices:
   the model.
 - **Homogeneous assets.** A method may offer several designs, but one run flies
   one of them: no mixed fleets, no learning curve, no mid-life refits.
-- **No early retirement.** An asset serves exactly its lifetime, even if demand
-  has fallen and it is idle. Idle capacity keeps drawing maintenance, though not
-  the utilities and consumables that only accrue where something is happening.
-- **Latitude enters twice, coarsely.** In climate mode the injection latitude
-  sets both the temperature response to forcing and the aerosol's residence
-  time, so it changes how much material is needed. Separately, a method that
-  launches from the ground needs a site at each latitude it deploys to, so the
-  same total mass spread across more latitudes buys more facilities and pays
-  more to maintain them. Beyond that floor, the model sums across latitudes and
-  costs the total: nothing else about building or running the fleet depends on
-  where the material goes.
+- **No demand-driven retirement.** Falling demand does not retire surplus
+  assets. Retained capacity continues to incur maintenance costs. Aircraft
+  retire under either their calendar-life or cycle-life limit. Scheduling
+  uses annual time steps: a cohort reaching its cycle limit during a year
+  serves that year and retires at the next year's start.
+- **Latitude enters coarsely.** In climate mode, injection latitude affects
+  both the temperature response to forcing and aerosol residence time.
+  Ground-launch methods also require sites at the latitudes they serve.
+  Aircraft basing is pooled capacity rather than a set of geographically
+  located airports; the aircraft model does not calculate routes or
+  location-specific construction costs.
+- **Discrete aircraft mission profiles.** Aircraft can operate only at the
+  altitudes supplied for the selected design. The model does not interpolate
+  between profiles.
 - **The climate representation is deliberately crude.** Response is linear in
   injection rate, cooling is instantaneous with no ocean lag, and only one
   injection latitude is modeled at a time. `climatology.py`'s docstring states
@@ -146,6 +161,14 @@ values are written back out as YAML into a working copy of the inputs directory
 in Pyodide's virtual filesystem, then read through the normal loader, so GUI
 input is validated exactly like a hand-edited file.
 
+The browser builds method-option controls from metadata supplied by each
+deployment method. It preserves method selections and edited assumptions
+when switching forms, displays supported aircraft altitudes, and checks
+altitude sweeps before calculating deployment schedules. Model warnings
+appear alongside successful results; identical warning messages from a
+sweep are shown once. Failed runs clear previous results and disable their
+downloads.
+
 **A change to the model does not reach the site until the wheel is rebuilt.**
 After editing anything under `src/`:
 
@@ -164,8 +187,7 @@ fetches the wheel and `app.py` at runtime.
 
 ```
 src/CIIM_SAI/          the model
-  load_inputs.py       reads and validates all input files; the only module
-                       that touches the filesystem
+  load_inputs.py       reads and validates the model's input files
   run.py               expands sweeps, runs cases, stacks results
   climatology.py       derives a deployment pattern from a temperature target
   __main__.py          command-line entry point; demonstration only
@@ -180,13 +202,19 @@ Adding a deployment method means adding two files: an input file
 `inputs/deployment_methods/<name>.yaml` and a module
 `deployment_methods/deploy_<name>.py` exposing `deployment_schedule(inputs)`.
 
-A method may also define `option_choices(method_yaml)`, returning the choices
-its `method_options` offers, and `deployable_materials(material_yaml)`,
-returning the subset of materials it can carry. Neither is needed to run the
-model; they are what lets the browser GUI draw the right dropdowns without
-knowing anything about the method. The method named in `scenario.yaml` is
-dispatched to dynamically, and both optional functions are looked up by name, so
-there is no registry to update anywhere.
+A method may also expose optional frontend hooks:
+
+- `option_fields(method_yaml)` describes scenario method-option controls,
+  including choices, numeric inputs, labels, and optional help text.
+- `deployable_materials(material_yaml)` lists materials the method can deploy.
+- `altitudes_by_design(method_yaml)` maps design names to supported discrete
+  injection altitudes.
+
+These hooks take raw input dictionaries. Without a hook, the browser offers
+no method-option controls, all materials, or no discrete altitude guidance,
+respectively. The model's schemas and method-level checks remain responsible
+for validation. Methods and their optional hooks are discovered by name;
+there is no central registry.
 
 ## License
 

@@ -19,11 +19,14 @@ readable and auditable by one person, not a production system.
   are converted to kg at load.
 - **YAML exponents need a signed exponent**: `1.0e+9` parses as a float, `1e9`
   parses as a string.
-- Validation lives in the schemas, not in the calculations. If a value could be
-wrong, add a pydantic constraint or a `model_validator` rather than a check at
-the point of use. The one exception is the sweep block's targets, checked in
-`load_inputs`: a `Scenario` validator can only see `Scenario`, and whether a
-path is sweepable depends on every input file.
+- Validate individual input values and relationships within one file in
+  pydantic schemas. Checks spanning files belong in method-level lookup
+  helpers or the loader. Checks involving derived mission quantities belong
+  where those quantities are calculated. The browser may perform Python
+  preflight checks for clearer feedback, but these do not replace the
+  model's validation. Sweep targets are checked in `load_inputs` because
+  their validity depends on declarations across the input files.
+
 
 ## Architecture
 
@@ -58,28 +61,48 @@ compute in JavaScript what Python can compute.
   schema. A helper used only by method modules lives inside
   `deployment_methods/`; one used more widely, like `climatology.py`, stays at
   the top level.
+- Aircraft cohort scheduling lives in `deploy_aircraft.py`, because retirement
+  depends on both calendar age and accumulated flight cycles. Deliveries and
+  retirements occur at annual boundaries. Base construction proceeds
+  independently of aircraft development. Mission profiles are discrete;
+  neither the model nor the frontend should interpolate missing altitudes.
+  The packaged aircraft designs contain placeholder data.
 - `run.py` expands the sweep into one `Inputs` per case and dispatches by
   importing `deploy_<method>` dynamically — adding a method requires no edit here.
-- A deployment method module's contract is one required function,
-  `deployment_schedule(inputs) -> DataFrame` indexed by year, and two optional
-  ones a front end calls by name when they exist: `option_choices(method_yaml)
-  -> {option: [values]}`, the `method_options` this method offers and the values
-  each may take, and `deployable_materials(material_yaml) -> [name]`, the
-  materials out of material.yaml it can actually deploy. Both take raw file
-  dicts rather than `Inputs`, because the caller is a form being drawn rather
-  than a run being set up, and a method that defines neither is simply offered
-  everything. Everything else in such a module is private to it, including the
-  schemas it owns: the root class validating `<name>.yaml` is named
-  `<Name>Method`, and the class validating the scenario's `method_options` is
-  `<Name>Options`. Checks that span two input files — a design the scenario
-  names against the designs the method file defines — live in the method module
-  as small `find_*` functions, since neither schema can see the other's file.
+- A deployment method exposes one required function:
+  `deployment_schedule(inputs) -> DataFrame`, indexed by year.
+  Optional frontend hooks are:
+  `option_fields(method_yaml) -> {option: metadata}`,
+  `deployable_materials(material_yaml) -> [name]`, and
+  `altitudes_by_design(method_yaml) -> {design: [altitudes]}`.
+  These take raw file dictionaries because forms are prepared before a
+  complete `Inputs` object exists. Missing hooks mean no option controls,
+  unrestricted material choices, or no discrete altitude guidance,
+  respectively. Keep method-specific knowledge inside the method module.
+  Its input schemas remain `<Name>Method` and `<Name>Options`; cross-file
+  lookups remain small method-level helpers such as `find_design()`.
 - Every method's schedule must carry `demand`, `capacity`, `utilization`,
   `development_cost`, `capex`, `opex` and `total_cost`, because the front ends
   compare across methods on those. Everything else is the method's own: the
   teleporter's `active` and `ordered`, the balloon's `launchpads_active` and
   `drones_flying`. Anything a front end aggregates must come from the guaranteed
   set.
-- `docs/app.py` is called function-by-name from JavaScript in `docs/index.html`.
-  It runs under Pyodide, where `/ciim_inputs` is a writable copy of the packaged
-  inputs in a virtual filesystem.
+- `docs/app.py` runs under Pyodide, using `/ciim_inputs` as a writable copy of
+  the packaged inputs. `docs/index.html` calls its functions through
+  `callPython()`; `runPython(appCode)` is reserved for loading the definitions.
+  Keep model calculations and altitude preflight validation in Python.
+
+- Form changes must preserve edited assumptions and per-method options.
+  Prepare replacement form metadata before replacing controls, and restore
+  saved inputs if preparation fails. Preserve selected CSV filenames across
+  mode changes; Reset and Import intentionally discard remembered selections.
+
+- Capture model warnings during loading and execution and display distinct
+  messages alongside successful results. Clear warnings, results, charts,
+  and download availability together before another run, reset, or import,
+  and after a failed run.
+
+- Changes under `src/`, including packaged inputs and frontend metadata hooks,
+  require rebuilding the wheel used by `docs/index.html`. Changes confined to
+  `docs/app.py` or `docs/index.html` do not. Local Python and simulated DOM
+  checks do not replace a browser test against the rebuilt wheel.
