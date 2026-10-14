@@ -25,21 +25,28 @@ from pathlib import Path
 import shutil
 import json
 import yaml
+import warnings
 
 results = None
 inputs = None
 sweep_params: list[str] = []
 currency_year = None
+run_warnings: list[str] = []
 
 
 def clear_results() -> None:
-    """Discard the previous run's results and associated metadata."""
-    global results, inputs, sweep_params, currency_year
+    """Discard the previous run's results, warnings, and metadata."""
+    global results, inputs, sweep_params, currency_year, run_warnings
     results = None
     inputs = None
     sweep_params = []
     currency_year = None
+    run_warnings = []
 
+
+def warnings_json() -> str:
+    """Return distinct warning messages from the successful model run."""
+    return json.dumps(run_warnings)
 
 def materialize_inputs(dest: str = "/ciim_inputs") -> None:
     """Copy the packaged input files into a writable directory.
@@ -53,16 +60,70 @@ def materialize_inputs(dest: str = "/ciim_inputs") -> None:
         shutil.rmtree(dest_path)
     shutil.copytree(INPUTS_DIR, dest_path)
 
+def validate_requested_altitudes(inputs) -> None:
+    """Check the single altitude or every altitude requested by a sweep.
+
+    When altitude is swept, its sweep values replace the scenario's base
+    altitude. This check does not change either value or any sweep settings.
+    """
+    scenario = inputs.scenario
+    offered = find_altitudes_by_design(
+        scenario.deployment_method, inputs.method
+    )
+    if not offered:
+        return
+
+    design = scenario.method_options.get("design")
+    if design not in offered:
+        raise ValueError(
+            f"Choose a design with altitude data. "
+            f"Designs offered: {', '.join(sorted(offered))}"
+        )
+
+    supported = offered[design]
+    altitude_sweep = scenario.sweep.get("scenario.altitude")
+    requested = (
+        altitude_sweep.values()
+        if altitude_sweep is not None
+        else [scenario.altitude]
+    )
+    unsupported = [value for value in requested if value not in supported]
+    if not unsupported:
+        return
+
+    shown = ", ".join(f"{value:,}" for value in unsupported[:5])
+    if len(unsupported) > 5:
+        shown += ", …"
+    choices = ", ".join(f"{value:,}" for value in supported)
+    source = "Altitude sweep" if altitude_sweep is not None else "Altitude"
+
+    raise ValueError(
+        f"{source} requests unsupported altitude(s) for {design}: "
+        f"{shown} m. Supported altitudes: {choices} m. "
+        "Choose supported values; mission profiles are not interpolated."
+    )
+
 def run_model(inputs_dir: str | None = None) -> str:
     """Run the scenario in inputs_dir (packaged defaults if None); keep results; return a summary."""
-    global results, inputs, sweep_params, currency_year
-    inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
-    scenario = inputs.scenario
-    validate_requested_altitudes(inputs)
-    results = run(inputs)
+    global results, inputs, sweep_params, currency_year, run_warnings
+    run_warnings = []
+
+    with warnings.catch_warnings(record=True) as captured:
+        # Capture warnings even if they appeared in a previous run.
+        warnings.simplefilter("always")
+
+        inputs = load_inputs(Path(inputs_dir)) if inputs_dir else load_inputs()
+        scenario = inputs.scenario
+        validate_requested_altitudes(inputs)
+        results = run(inputs)
+
+    # Show repeated sweep warnings once, in first-occurrence order.
+    run_warnings = list(dict.fromkeys(
+        str(item.message) for item in captured
+    ))
     sweep_params = list(scenario.sweep)
     currency_year = inputs.currency_year
-
+    
     lines = [f"method   : {scenario.deployment_method}"]
     if scenario.deployment_pattern is not None:
         lines.append(f"pattern  : {scenario.deployment_pattern} ({scenario.deployed_material})")

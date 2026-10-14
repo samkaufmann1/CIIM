@@ -95,21 +95,36 @@
     <p id="loading-quip"></p>
   </div>
   <h1>CIIM-SAI</h1>
-  <p>A simulation of the costs and operational requirements of SAI deployment.</p>
   <p>
-    <strong>Inputs:</strong> A pattern and schedule of SAI deployment, and
-    assumptions about the deployment infrastructure being used.<br>
-    <strong>Outputs:</strong> Costs, operational requirements, and procurement schedule.
+    A simulation of the costs and operational requirements of stratospheric
+    aerosol injection (SAI).
   </p>
   <p>
-    Two deployment methods are implemented. Balloons are the real one:
-    disposable latex weather balloons filled with hydrogen and a payload gas,
-    launched from facilities of launchpads and bursting at the injection
-    altitude. Treat those figures as preliminary — the largest single cost is
-    the balloons themselves, at an assumed unit price well below what small
-    quantities retail for today. The "teleporter" is fictional, kept because a
-    deliberately simple method is useful for exercising the model.
-    Source code can be found at
+    <strong>Inputs:</strong> A deployment schedule or temperature-reduction
+    target, together with assumptions about materials and deployment
+    infrastructure.<br>
+    <strong>Outputs:</strong> Program costs, operational requirements, and
+    procurement schedules.
+  </p>
+  <p>
+    The model supports deployment by balloons and by crewed or uncrewed
+    aircraft. Balloons carry a payload gas to the injection altitude and
+    release it when they burst. Aircraft climb to the injection altitude
+    and disperse their payload during cruise.
+  </p>
+  <p>
+    <strong>Preliminary assumptions:</strong> The included aircraft designs
+    use placeholder costs and performance data, not validated aircraft
+    designs. Their results illustrate model behavior and should not be
+    treated as deployment estimates until those inputs are replaced.
+    Balloon estimates are also preliminary: a major cost assumption is
+    the balloon unit price, which assumes substantial savings over
+    small-quantity retail purchases.
+  </p>
+  <p>
+    A fictional “teleporter” method is also included as a simple test case
+    for the model.
+    Source code is available at
     <a href="https://github.com/samkaufmann1/CIIM">github.com/samkaufmann1/CIIM</a>.
   </p>
 
