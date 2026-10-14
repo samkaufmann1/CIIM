@@ -321,7 +321,7 @@
     let displayedMode = null;
     
     function populateScenarioForm(
-      init = JSON.parse(pyodide.runPython("scenario_form_init()"))
+      init = JSON.parse(callPython("scenario_form_init"))
       ) {
       const fill = (id, options, selected) => {
       const sel = document.getElementById(id);
@@ -505,7 +505,7 @@
     // inside a closed <details> stay in the DOM, so gatherInputsForms still
     // reads every one of them whether or not it is showing.
     function renderInputsForms(
-      spec = JSON.parse(pyodide.runPython("inputs_form_init()"))
+      spec = JSON.parse(callPython("inputs_form_init"))
     ) {
       const container = document.getElementById("inputs-forms");
       container.innerHTML = "";
@@ -542,29 +542,29 @@
     }
 
 
-  function writePythonJson(functionName, value) {
-      // Pass user data as an argument instead of embedding it in Python code.
-      const fn = pyodide.globals.get(functionName);
+    function callPython(name, ...args) {
+      // Pass arguments directly instead of constructing Python source code.
+      const fn = pyodide.globals.get(name);
       try {
-        return fn(JSON.stringify(value));
+        return fn(...args);
       } finally {
         fn.destroy();
       }
     }
 
     function saveCurrentForms(scenario = gatherScenario()) {
-      // Each assumption control identifies its own file. Save these before
-      // replacing the controls during a method switch.
-      writePythonJson("write_overrides", gatherInputsForms());
-      writePythonJson("write_scenario", scenario);
+      // Save the displayed scenario and assumptions before running or exporting.
+      callPython("write_overrides", JSON.stringify(gatherInputsForms()));
+      callPython("write_scenario", JSON.stringify(scenario));
     }
 
     function prepareFormChange(scenario) {
-      return JSON.parse(writePythonJson("prepare_form_change", {
+      return JSON.parse(callPython("prepare_form_change", JSON.stringify({
         scenario,
         overrides: gatherInputsForms(),
-      }));
-}
+      })));
+    }
+
     function showFormError(err) {
       const status = document.getElementById("run-status");
       status.textContent = String(err);
@@ -599,7 +599,7 @@
       status.textContent = "";
       status.className = "";
 
-      pyodide.runPython("clear_results()");
+      callPython("clear_results");
       renderChart("chart-costs", "");
       renderChart("chart-components", "");
     }
@@ -614,20 +614,20 @@
         await new Promise(resolve => setTimeout(resolve, 0));
 
         saveCurrentForms();
-        const summary = pyodide.runPython('run_model("/ciim_inputs")');
+        const summary = callPython("run_model", "/ciim_inputs");
 
-        await renderChart("chart-costs", pyodide.runPython("cost_chart()"));
+        await renderChart("chart-costs", callPython("cost_chart"));
         await renderChart(
-          "chart-components", pyodide.runPython("component_chart()")
+          "chart-components", callPython("component_chart")
         );
 
         const headline = document.getElementById("cost-headline");
-        headline.textContent = pyodide.runPython("cost_per_degree_year()");
+        headline.textContent = callPython("cost_per_degree_year");
         headline.hidden = !headline.textContent;
 
         const derived = document.getElementById("download-derived");
         const hasDerivedPattern = Boolean(
-          pyodide.runPython("derived_pattern_csv()")
+          callPython("derived_pattern_csv")
         );
         derived.hidden = !hasDerivedPattern;
         derived.disabled = !hasDerivedPattern;
@@ -660,7 +660,7 @@
         showLoading("Preparing inputs…");
         const appCode = await (await fetch("./app.py")).text();
         pyodide.runPython(appCode);                       // defines the app functions
-        pyodide.runPython('materialize_inputs("/ciim_inputs")');
+        callPython("materialize_inputs", "/ciim_inputs");
         populateScenarioForm();
         renderInputsForms();
         
@@ -684,15 +684,14 @@
     document.getElementById("run-model").addEventListener("click", runFromInputs);
 
     document.getElementById("download-csv").addEventListener("click", () => {
-      downloadText("deployment_schedule.csv", pyodide.runPython("results_csv()"));
+      downloadText("deployment_schedule.csv", callPython("results_csv"));
     });
 
     document.getElementById("f-pattern").addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const text = await file.text();
-      patternFile = pyodide.runPython(
-        `write_pattern(${JSON.stringify(text)}, ${JSON.stringify(file.name)})`);
+      patternFile = callPython("write_pattern", text, file.name);
       document.getElementById("pattern-name").textContent = patternFile;
     });
 
@@ -700,19 +699,18 @@
       const file = e.target.files[0];
       if (!file) return;
       const text = await file.text();
-      temperatureFile = pyodide.runPython(
-        `write_temperature_pattern(${JSON.stringify(text)}, ${JSON.stringify(file.name)})`);
+      temperatureFile = callPython("write_temperature_pattern", text, file.name);
       document.getElementById("temperature-name").textContent = temperatureFile;
     });
 
     document.getElementById("download-temperature").addEventListener("click", () => {
       downloadText(temperatureFile,
-                   pyodide.runPython(`temperature_csv(${JSON.stringify(temperatureFile)})`));
+                   callPython("temperature_csv", temperatureFile));
     });
 
     document.getElementById("download-derived").addEventListener("click", () => {
       downloadText("derived_deployment_pattern.csv",
-                   pyodide.runPython("derived_pattern_csv()"));
+                   callPython("derived_pattern_csv"));
     });
 
     // Prepare the new form before replacing any displayed controls.
@@ -735,7 +733,7 @@
       });
     }
     document.getElementById("download-pattern").addEventListener("click", () => {
-      downloadText(patternFile, pyodide.runPython(`pattern_csv(${JSON.stringify(patternFile)})`));
+      downloadText(patternFile, callPython("pattern_csv", patternFile));
     });
     document.getElementById("add-sweep").addEventListener("click", () => addSweepRow());
     document.getElementById("f-method").addEventListener("change", () => {
@@ -769,7 +767,7 @@
     document.getElementById("reset-inputs").addEventListener("click", async () => {
       try {
         clearResults();
-        pyodide.runPython('materialize_inputs("/ciim_inputs")');
+        callPython("materialize_inputs", "/ciim_inputs");
         methodOptionsByMethod.clear();
         patternFile = null;
         temperatureFile = null;
@@ -789,7 +787,7 @@
         saveCurrentForms();
         downloadText(
           "ciim_config.yaml",
-          pyodide.runPython("export_config()"),
+          callPython("export_config"),
           "text/yaml"
         );
       } catch (err) {
@@ -804,8 +802,7 @@
       try {
         clearResults();
         const text = await file.text();
-        pyodide.runPython(`import_config(${JSON.stringify(text)})`);
-
+        callPython("import_config", text)
         methodOptionsByMethod.clear();
         patternFile = null;
         temperatureFile = null;
