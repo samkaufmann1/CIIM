@@ -11,16 +11,10 @@ injection altitude and release it when they burst. Aircraft climb to the
 injection altitude and disperse their payload during cruise. A fictional
 teleporter is also included as a simple test case for the model.
 
-The included aircraft designs use placeholder costs and performance data,
-not validated aircraft designs. Their results illustrate model behavior;
+The included aircraft and balloon designs use placeholder costs and performance data,
+not validated designs. Their results illustrate model behavior;
 the inputs must be replaced before those results can support deployment
-estimates.
-
-Treat the balloon figures as preliminary. The largest single cost is the
-balloons themselves, at an assumed unit price well below what small quantities
-retail for today — an assumption about manufacturing at deployment scale, not a
-quotation, and one this model has no representation of. Nothing here has been
-reviewed by anyone in the balloon industry.
+cost estimates.
 
 Generative AI tools were used to help write the code and documentation in this
 repo. I take full responsibility as the author for everything produced using
