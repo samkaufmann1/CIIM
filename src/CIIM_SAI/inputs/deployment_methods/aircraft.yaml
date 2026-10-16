@@ -15,7 +15,7 @@ aircraft:
   fuel: Jet-A
 
   designs:
-    fake_lofter_crewed:
+    fictional_lofter_crewed:
       unit_cost: 1.1e+8
       lead_time_years: 3
       lifetime_years: 20
@@ -75,7 +75,7 @@ aircraft:
         Placeholder. Loosely scaled on the business-jet-derived lofter concepts
         in the SAI literature, but no figure here traces to a published design.
 
-    fake_lofter_uncrewed:
+    fictional_lofter_uncrewed:
       unit_cost: 4.0e+7
       lead_time_years: 3
       lifetime_years: 20
